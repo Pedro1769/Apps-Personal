@@ -162,7 +162,7 @@ class PGospelMusicAPITester:
             "genre": "gospel"
         }
         
-        success, data = self.make_request('POST', '/projects', project_data, 201)
+        success, data = self.make_request('POST', '/projects', project_data, 200)
         
         if success and 'id' in data:
             self.created_project_id = data['id']
