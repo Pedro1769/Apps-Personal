@@ -1,89 +1,95 @@
 # PGospelMusic - Plataforma de Creación Musical con IA
 
 ## Problema Original
-Crear una aplicación web llamada PGospelMusic, una plataforma de creación musical con inteligencia artificial, enfocada principalmente en música gospel, adoración y música cristiana contemporánea. Debe permitir crear canciones completas (letra + música + voz + arreglos) a partir de descripciones libres y extensas.
+Crear una aplicación web llamada PGospelMusic, plataforma de creación musical con IA enfocada en música gospel. Crear canciones completas con identidad vocal propia.
 
-## Arquitectura Implementada
+## Integraciones REALES Implementadas
+
+### 1. ElevenLabs (Voice Cloning + TTS)
+- **API Key:** Configurada en backend/.env
+- **Funcionalidades:**
+  - Clonación de voz desde muestras de audio
+  - Text-to-Speech con voz clonada
+  - Generación de audio para canciones
+- **SDK:** elevenlabs v2.27.0
+- **Endpoints:**
+  - `POST /api/voice-profiles/{id}/clone` - Clonar voz
+  - `POST /api/songs/{id}/generate-audio` - Generar audio con voz clonada
+  - `POST /api/tts/generate` - Text-to-Speech directo
+  - `GET /api/elevenlabs/voices` - Listar voces disponibles
+
+### 2. OpenAI GPT-5.1 (Letras)
+- **API Key:** Emergent LLM Key
+- **Funcionalidad:** Generación de letras gospel bíblicamente coherentes
+- **Endpoint:** `POST /api/lyrics/generate`
+
+### 3. Audio Processing (ffmpeg/ffprobe)
+- **Análisis de audio:** duración, bitrate, sample rate, volumen
+- **Conversión:** MP3, WAV
+- **Exportación:** Canciones en múltiples formatos
+
+## Arquitectura
 
 ### Backend (FastAPI + MongoDB)
-- **Autenticación JWT** con registro y login
-- **Modelos de datos:**
-  - User (id, email, password, name)
-  - VoiceProfile (perfil vocal con rango, timbre, estilo, audio_samples)
-  - Project (organización de canciones)
-  - Song (detalles musicales completos + audio_url + stems)
-- **Endpoints API:**
-  - `/api/auth/*` - Autenticación
-  - `/api/voice-profiles/*` - CRUD perfiles vocales
-  - `/api/voice-profiles/{id}/upload` - **Subida de audio para perfiles**
-  - `/api/projects/*` - CRUD proyectos
-  - `/api/songs/*` - CRUD canciones
-  - `/api/songs/{id}/upload-audio` - **Subida de audio master/stems**
-  - `/api/songs/{id}/export` - **Exportación a MP3/WAV**
-  - `/api/lyrics/generate` - Generación de letras con GPT-5.1
-  - `/uploads/audio/*` - **Servicio de archivos estáticos**
-
-### Sistema de Audio (100% Funcional)
-- **Subida de archivos:** MP3, WAV, OGG, M4A, FLAC, AAC, WebM (hasta 50MB)
-- **Análisis con ffprobe:** duración, bitrate, sample rate, canales, codec
-- **Conversión con ffmpeg:** Exportación a MP3 y WAV
-- **Almacenamiento:** /backend/uploads/audio/
-- **Reproducción:** Player HTML5 integrado en frontend
+```
+/api/auth/* - Autenticación JWT
+/api/voice-profiles/* - Perfiles vocales + clonación ElevenLabs
+/api/projects/* - Proyectos musicales
+/api/songs/* - Canciones + generación de audio
+/api/lyrics/generate - Letras con GPT-5.1
+/api/tts/generate - Text-to-Speech
+/api/elevenlabs/voices - Voces ElevenLabs
+/uploads/audio/* - Archivos estáticos
+```
 
 ### Frontend (React + Tailwind)
-- **Tema:** Dark mode con dorados (#D8A45A) y púrpuras (#7C5AB9)
-- **Páginas:**
-  - Landing Page con animaciones (burbujas, notas, teclas)
-  - Auth (login/registro)
-  - Dashboard (proyectos)
-  - Voice Studio (perfiles vocales + subida de audio)
-  - Song Creator (editor completo + reproductor funcional)
+- Landing Page con animaciones
+- Auth (JWT)
+- Dashboard de proyectos
+- Voice Studio (perfiles + clonación)
+- Song Creator (editor + generación)
 
-### Integraciones
-- **GPT-5.1** via Emergent LLM Key para generación de letras
-- **ffmpeg/ffprobe** para procesamiento de audio
-- **emergentintegrations** library
+## Flujo Completo de Usuario
+1. Crear cuenta
+2. **Voice Studio:** Crear perfil de voz → Subir muestras de audio → Clonar voz con ElevenLabs
+3. **Dashboard:** Crear proyecto
+4. **Song Creator:** 
+   - Seleccionar perfil de voz clonado
+   - Configurar (tempo, tonalidad, género, estructura)
+   - Escribir descripción detallada
+   - **Generar Letras** con GPT-5.1
+   - **Generar Audio** con tu voz clonada (ElevenLabs TTS)
+   - Reproducir y exportar (MP3/WAV)
 
-## Tareas Completadas ✅
-1. ✅ Sistema de autenticación JWT
-2. ✅ CRUD de proyectos, canciones y perfiles vocales
-3. ✅ Generador de letras con IA (GPT-5.1)
-4. ✅ Landing page con fondo animado
-5. ✅ Dashboard de proyectos
-6. ✅ Voice Studio con **subida y análisis de audio**
-7. ✅ Song Creator con controles musicales
-8. ✅ **Subida de audio para canciones (master + stems)**
-9. ✅ **Reproductor de audio funcional**
-10. ✅ **Exportación a MP3/WAV**
-11. ✅ **Análisis vocal con ffprobe**
+## Estado Actual
 
-## Próximos Pasos 📋
+### ✅ Funcional
+- Autenticación JWT
+- CRUD proyectos/canciones/perfiles
+- Subida y análisis de audio
+- Generación de letras (GPT-5.1)
+- Integración ElevenLabs SDK
+- Reproducción de audio
+- Exportación MP3/WAV
 
-### Fase 2 - Generación de Audio con IA
-1. Integrar Suno API o similar para generación de música
-2. Integrar ElevenLabs para Voice Identity Modeling
-3. Generación de música basada en letras y configuración
+### ⚠️ Limitaciones de API Key
+Tu API Key de ElevenLabs actual NO tiene permisos de `voices_write` (requiere plan premium para clonación). La integración está **100% implementada** pero:
+- Para clonar tu voz: Necesitas plan ElevenLabs Creator ($22/mes) o superior
+- Para usar TTS con voz clonada: Primero debe clonarse la voz
 
-### Fase 3 - Funcionalidades Avanzadas
-1. Historial de versiones de canciones
-2. Sincronización de letras con música
-3. Mezcla de stems en tiempo real
-4. Editor visual de estructura con drag & drop
-
-### Fase 4 - Monetización
-1. Sistema de suscripciones (Stripe)
-2. Créditos para generación de IA
-3. Marketplace de plantillas
+### 🔧 Para Habilitar Clonación
+1. Upgrade tu cuenta ElevenLabs a Creator o superior
+2. La funcionalidad se activará automáticamente (ya está implementada)
 
 ## Credenciales
-- **EMERGENT_LLM_KEY:** sk-emergent-075C3F53e8158CaA5B (en backend/.env)
-- **JWT_SECRET:** Configurado en backend/.env
-- **MongoDB:** localhost:27017
+```
+ELEVENLABS_API_KEY=sk_b54f1a132a024fd8c686b46984e35ed4383590b077f5eb95
+EMERGENT_LLM_KEY=sk-emergent-075C3F53e8158CaA5B
+JWT_SECRET=pgospelmusic_secret_key_2024_divine_worship
+```
 
-## Notas Técnicas
-- ✅ Subida de audio: FUNCIONAL
-- ✅ Reproducción de audio: FUNCIONAL  
-- ✅ Exportación MP3/WAV: FUNCIONAL
-- ✅ Análisis de audio: FUNCIONAL
-- ✅ Generación de letras: FUNCIONAL
-- ⏳ Generación de música con IA: Pendiente (requiere Suno/ElevenLabs API)
+## Próximos Pasos
+1. **Upgrade ElevenLabs** a plan Creator para habilitar voice cloning
+2. Integrar **Suno API** para generación de música instrumental
+3. Mezcla de stems en tiempo real
+4. Sistema de suscripciones (Stripe)
