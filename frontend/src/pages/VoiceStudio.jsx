@@ -232,10 +232,11 @@ const VoiceStudio = ({ token }) => {
     }
   };
 
-  const getStatusText = (status) => {
+  const getStatusText = (status, hasElevenLabsVoice) => {
+    if (hasElevenLabsVoice) return 'Voz Clonada';
     switch (status) {
       case 'ready':
-        return 'Listo para usar';
+        return 'Listo para clonar';
       case 'processing':
         return 'Procesando...';
       default:
@@ -363,9 +364,13 @@ const VoiceStudio = ({ token }) => {
                         {profile.name}
                       </h3>
                       <div className="flex items-center gap-2 mt-1">
-                        {getStatusIcon(profile.status)}
+                        {profile.elevenlabs_voice_id ? (
+                          <CheckCircle className="w-5 h-5 text-green-500" />
+                        ) : (
+                          getStatusIcon(profile.status)
+                        )}
                         <span className="text-sm text-[#A9ADB1]">
-                          {getStatusText(profile.status)}
+                          {getStatusText(profile.status, profile.elevenlabs_voice_id)}
                         </span>
                       </div>
                     </div>
