@@ -481,9 +481,9 @@ async def clone_voice_elevenlabs(profile_id: str, user: dict = Depends(get_curre
         if not audio_files:
             raise HTTPException(status_code=400, detail="No valid audio files found")
         
-        voice = eleven_client.voices.add(
+        voice = eleven_client.voices.clone_voice_from_files(
             name=f"PGospel_{profile['name']}_{profile_id[:8]}",
-            files=audio_files,
+            files=[f.name for f in audio_files],  # Use file paths instead of file objects
             description=f"Voice profile for {profile['name']}. {profile.get('description', '')}"
         )
         
