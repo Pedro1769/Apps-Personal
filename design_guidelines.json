@@ -1,0 +1,187 @@
+{
+  "identity": {
+    "name": "E1",
+    "role": "Anti-AI Creative Designer",
+    "mission": "Create a spiritual, high-end, and emotionally resonant music creation platform that breaks the generic SaaS mold.",
+    "principles": [
+      "Fusion over Imitation: Mix Gospel spirituality with High-Tech precision.",
+      "Emotion First: Every pixel must convey 'Divinity' and 'Creativity'.",
+      "Content is King: The music and the lyrics are the heroes.",
+      "Zoom In: Focus on the details of the audio waveforms and controls.",
+      "Negative Space: Allow the user to breathe while creating.",
+      "Contrast: Deep dark backgrounds vs. luminous gold/purple accents."
+    ]
+  },
+  "design_system": {
+    "theme": "dark",
+    "colors": {
+      "palette": {
+        "background": {
+          "primary": "#0B0C0E",
+          "secondary": "#111318",
+          "tertiary": "#1A1D23"
+        },
+        "text": {
+          "primary": "#E6E7E9",
+          "secondary": "#A9ADB1",
+          "muted": "#6B7280"
+        },
+        "accent": {
+          "gold": {
+            "default": "#D8A45A",
+            "hover": "#E6B86E",
+            "pressed": "#B8843F",
+            "glow": "rgba(216, 164, 90, 0.3)"
+          },
+          "purple": {
+            "default": "#7C5AB9",
+            "light": "#A680FF",
+            "dark": "#5A3B86",
+            "glow": "rgba(124, 90, 185, 0.3)"
+          }
+        },
+        "status": {
+          "success": "#D8A45A",
+          "error": "#D05B5B",
+          "warning": "#F59E0B"
+        }
+      },
+      "gradients": {
+        "divine_light": "linear-gradient(180deg, rgba(216, 164, 90, 0.15) 0%, rgba(11, 12, 14, 0) 100%)",
+        "mystic_depth": "radial-gradient(circle at center, rgba(124, 90, 185, 0.15) 0%, rgba(11, 12, 14, 0) 70%)",
+        "gold_border": "linear-gradient(90deg, transparent, #D8A45A, transparent)"
+      }
+    },
+    "typography": {
+      "fonts": {
+        "headings": {
+          "family": "Cinzel, serif",
+          "weights": ["400", "700"],
+          "usage": "Hero titles, Section headers, Logo"
+        },
+        "body": {
+          "family": "Manrope, sans-serif",
+          "weights": ["400", "500", "600"],
+          "usage": "UI controls, lyrics, general text"
+        },
+        "mono": {
+          "family": "JetBrains Mono, monospace",
+          "weights": ["400"],
+          "usage": "Timecodes, values, technical data"
+        }
+      },
+      "scale": {
+        "h1": "text-5xl md:text-7xl font-bold tracking-tight",
+        "h2": "text-3xl md:text-4xl font-semibold tracking-tight",
+        "h3": "text-xl md:text-2xl font-medium",
+        "body": "text-base leading-relaxed",
+        "small": "text-sm text-muted-foreground"
+      }
+    },
+    "spacing": {
+      "container_padding": "p-6 md:p-12",
+      "section_gap": "gap-12 md:gap-24",
+      "component_gap": "gap-4"
+    },
+    "visual_enhancers": {
+      "glassmorphism": {
+        "panel": "bg-[#111318]/80 backdrop-blur-xl border border-white/5 shadow-2xl",
+        "overlay": "bg-black/60 backdrop-blur-md"
+      },
+      "borders": {
+        "subtle": "border border-white/10",
+        "active": "border border-[#D8A45A]/50 shadow-[0_0_15px_rgba(216,164,90,0.2)]"
+      },
+      "shadows": {
+        "glow": "0 0 20px rgba(216, 164, 90, 0.15)",
+        "depth": "0 10px 30px -10px rgba(0, 0, 0, 0.5)"
+      }
+    }
+  },
+  "layout_strategies": {
+    "marketing": {
+      "type": "Tetris Grid",
+      "description": "Asymmetrical, artistic layout for the landing page. Use large hero sections mixed with bento-style feature grids.",
+      "grid_class": "grid grid-cols-1 md:grid-cols-12 gap-8"
+    },
+    "studio": {
+      "type": "Control Room Grid",
+      "description": "Dense, functional layout for the Song Creator and Dashboard. Maximizes screen real estate for controls.",
+      "grid_class": "grid grid-cols-12 gap-4 h-[calc(100vh-4rem)]"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#D8A45A] text-[#0B0C0E] hover:bg-[#E6B86E] font-semibold rounded-full px-8 py-3 transition-all shadow-[0_0_15px_rgba(216,164,90,0.3)] hover:shadow-[0_0_25px_rgba(216,164,90,0.5)]",
+      "secondary": "bg-white/5 text-[#E6E7E9] border border-white/10 hover:bg-white/10 hover:border-white/20 rounded-full px-6 py-2 transition-all",
+      "ghost": "text-[#A9ADB1] hover:text-[#D8A45A] hover:bg-white/5 rounded-lg px-4 py-2 transition-all"
+    },
+    "cards": {
+      "feature": "group relative overflow-hidden rounded-2xl bg-[#111318] border border-white/5 p-8 hover:border-[#D8A45A]/30 transition-all duration-500",
+      "project": "rounded-xl bg-[#1A1D23] border border-white/5 p-4 hover:bg-[#20242C] transition-all group cursor-pointer"
+    },
+    "inputs": {
+      "default": "bg-[#0B0C0E] border border-white/10 rounded-lg px-4 py-3 text-[#E6E7E9] focus:border-[#D8A45A] focus:ring-1 focus:ring-[#D8A45A] transition-all placeholder:text-white/20"
+    }
+  },
+  "assets": {
+    "images": {
+      "hero_bg": {
+        "url": "https://images.unsplash.com/photo-1704923375107-0ed198940aba?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "alt": "Worship concert atmosphere",
+        "usage": "Landing page hero background with heavy overlay"
+      },
+      "voice_studio": {
+        "url": "https://images.unsplash.com/photo-1581650127213-e72e2271ff15?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "alt": "Professional microphone",
+        "usage": "Voice Identity Modeling section"
+      },
+      "textures": [
+        {
+          "url": "https://images.unsplash.com/photo-1644673640760-dee7d9cb7eba?crop=entropy&cs=srgb&fm=jpg&q=85",
+          "alt": "Abstract gold lines",
+          "usage": "Subtle background texture for feature sections"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1551084219-d8cab9d7f776?crop=entropy&cs=srgb&fm=jpg&q=85",
+          "alt": "Piano keys shadow",
+          "usage": "Music controls background or card image"
+        }
+      ]
+    },
+    "icons": {
+      "library": "lucide-react",
+      "style": "Stroke width 1.5px, rounded ends"
+    }
+  },
+  "motion": {
+    "background_animation": {
+      "description": "Floating particles (bubbles, notes) moving gently upwards.",
+      "implementation": "Use Framer Motion or CSS keyframes for 'floating' divs. Do not use heavy video.",
+      "elements": [
+        "Bubbles: rounded-full bg-white/5 blur-sm",
+        "Notes: SVG icons text-[#D8A45A]/10",
+        "Piano Keys: Rectangular blocks bg-white/5"
+      ]
+    },
+    "transitions": {
+      "page": "initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.4 }}",
+      "hover": "transition-all duration-300 ease-out"
+    }
+  },
+  "instructions_to_main_agent": {
+    "file_extensions": "Use .js and .jsx for React files as per constraints. Do not use .tsx.",
+    "styling": "Use Tailwind CSS for all styling. Avoid inline styles unless for dynamic values.",
+    "components": "Customize Shadcn components to match the 'Jewel & Luxury' theme. Override default borders and backgrounds.",
+    "layout": "Strictly follow the 'Tetris' grid for marketing and 'Control Room' grid for the app.",
+    "accessibility": "Ensure all text meets contrast ratios against the dark background. Use 'data-testid' for all interactive elements."
+  },
+  "universal_guidelines": [
+    "Do not use gradients for text unless it's a very large headline.",
+    "Avoid 'Inter' for headings; use 'Cinzel' or 'Playfair Display'.",
+    "Never use pure black (#000000); use the provided #0B0C0E.",
+    "Ensure all containers with borders have internal padding.",
+    "Use 'sonner' for toasts.",
+    "Create a 'design_system' folder if needed to store reusable logic."
+  ]
+}
