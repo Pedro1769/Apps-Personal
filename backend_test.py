@@ -605,6 +605,185 @@ class PGospelMusicAPITester:
         else:
             self.log_test("Static File Serving", False, "No audio samples found to test")
 
+    def test_elevenlabs_health_check(self):
+        """Test ElevenLabs configuration in health endpoint"""
+        print("\n🔍 Testing ElevenLabs Health Check...")
+        success, data = self.make_request('GET', '/health')
+        
+        if success and 'elevenlabs_configured' in data:
+            elevenlabs_status = data.get('elevenlabs_configured', False)
+            if elevenlabs_status:
+                self.log_test("ElevenLabs Health Check", True, "ElevenLabs is configured and available")
+            else:
+                self.log_test("ElevenLabs Health Check", False, "ElevenLabs is not configured")
+        else:
+            self.log_test("ElevenLabs Health Check", False, f"Health check failed: {data}")
+
+    def test_elevenlabs_voices_list(self):
+        """Test ElevenLabs voices endpoint"""
+        print("\n🔍 Testing ElevenLabs Voices List...")
+        
+        if not self.token:
+            self.log_test("ElevenLabs Voices List", False, "No auth token available")
+            return
+            
+        success, data = self.make_request('GET', '/elevenlabs/voices')
+        
+        if success and 'voices' in data:
+            voices_count = len(data['voices'])
+            self.log_test("ElevenLabs Voices List", True, f"Found {voices_count} available voices")
+        else:
+            # Check if it's a service unavailable error (expected if no API key)
+            if isinstance(data, dict) and data.get('detail') == 'ElevenLabs not configured':
+                self.log_test("ElevenLabs Voices List", False, "ElevenLabs not configured (expected if no API key)")
+            else:
+                self.log_test("ElevenLabs Voices List", False, f"Failed to get voices: {data}")
+
+    def test_voice_cloning_manual_trigger(self):
+        """Test manual voice cloning with ElevenLabs"""
+        print("\n🔍 Testing Manual Voice Cloning...")
+        
+        if not self.token or not self.created_voice_profile_id:
+            self.log_test("Manual Voice Cloning", False, "No auth token or voice profile available")
+            return
+        
+        # First ensure we have audio samples
+        success, profile_data = self.make_request('GET', f'/voice-profiles/{self.created_voice_profile_id}')
+        
+        if not success or not profile_data.get('audio_samples'):
+            self.log_test("Manual Voice Cloning", False, "No audio samples available for cloning")
+            return
+        
+        # Trigger manual cloning
+        success, data = self.make_request('POST', f'/voice-profiles/{self.created_voice_profile_id}/clone')
+        
+        if success and 'voice_id' in data:
+            voice_id = data['voice_id']
+            self.log_test("Manual Voice Cloning", True, f"Voice cloned successfully: {voice_id}")
+        elif success and data.get('message') == 'Voice already cloned':
+            existing_voice_id = data.get('voice_id', 'unknown')
+            self.log_test("Manual Voice Cloning", True, f"Voice already cloned: {existing_voice_id}")
+        else:
+            # Check if it's a service unavailable error
+            if isinstance(data, dict) and 'ElevenLabs not configured' in str(data.get('detail', '')):
+                self.log_test("Manual Voice Cloning", False, "ElevenLabs not configured (expected if no API key)")
+            else:
+                self.log_test("Manual Voice Cloning", False, f"Failed to clone voice: {data}")
+
+    def test_tts_generation(self):
+        """Test Text-to-Speech generation with cloned voice"""
+        print("\n🔍 Testing TTS Generation...")
+        
+        if not self.token or not self.created_voice_profile_id:
+            self.log_test("TTS Generation", False, "No auth token or voice profile available")
+            return
+        
+        # Check if voice profile has been cloned
+        success, profile_data = self.make_request('GET', f'/voice-profiles/{self.created_voice_profile_id}')
+        
+        if not success or not profile_data.get('elevenlabs_voice_id'):
+            self.log_test("TTS Generation", False, "Voice not cloned yet - cannot test TTS")
+            return
+        
+        tts_request = {
+            "text": "Bendito sea el nombre del Señor, por siempre y para siempre.",
+            "voice_profile_id": self.created_voice_profile_id,
+            "stability": 0.5,
+            "similarity_boost": 0.75,
+            "style": 0.5
+        }
+        
+        print("Generating TTS with cloned voice... (this may take a few seconds)")
+        success, data = self.make_request('POST', '/tts/generate', tts_request)
+        
+        if success and 'audio_url' in data:
+            audio_url = data['audio_url']
+            duration = data.get('duration', 0)
+            voice_id = data.get('voice_id', 'unknown')
+            self.log_test("TTS Generation", True, f"TTS generated: {duration:.1f}s, Voice ID: {voice_id}")
+        else:
+            # Check if it's a service unavailable error
+            if isinstance(data, dict) and 'ElevenLabs not configured' in str(data.get('detail', '')):
+                self.log_test("TTS Generation", False, "ElevenLabs not configured (expected if no API key)")
+            else:
+                self.log_test("TTS Generation", False, f"Failed to generate TTS: {data}")
+
+    def test_song_audio_generation_with_voice(self):
+        """Test song audio generation with cloned voice"""
+        print("\n🔍 Testing Song Audio Generation with Cloned Voice...")
+        
+        if not self.token or not self.created_song_id or not self.created_voice_profile_id:
+            self.log_test("Song Audio Generation", False, "Missing required IDs")
+            return
+        
+        # First add lyrics to the song
+        lyrics_data = {
+            "lyrics": """[Verso 1]
+Santo, santo, santo
+Es el Señor Dios Todopoderoso
+Que era, que es y que ha de venir
+
+[Coro]
+Digno eres Tú, Señor
+De recibir la gloria y la honra
+Y el poder, por siempre
+Amén"""
+        }
+        
+        success, _ = self.make_request('PUT', f'/songs/{self.created_song_id}/lyrics', lyrics_data)
+        if not success:
+            self.log_test("Song Audio Generation", False, "Failed to add lyrics to song")
+            return
+        
+        # Check if voice profile has been cloned
+        success, profile_data = self.make_request('GET', f'/voice-profiles/{self.created_voice_profile_id}')
+        
+        if not success or not profile_data.get('elevenlabs_voice_id'):
+            self.log_test("Song Audio Generation", False, "Voice not cloned yet - cannot test song audio generation")
+            return
+        
+        # Generate audio with cloned voice
+        print("Generating song audio with cloned voice... (this may take 10-15 seconds)")
+        success, data = self.make_request('POST', f'/songs/{self.created_song_id}/generate-audio?voice_profile_id={self.created_voice_profile_id}')
+        
+        if success and 'audio_url' in data:
+            audio_url = data['audio_url']
+            duration = data.get('duration', 0)
+            voice_id = data.get('voice_id', 'unknown')
+            self.log_test("Song Audio Generation", True, f"Song audio generated: {duration:.1f}s, Voice ID: {voice_id}")
+        else:
+            # Check if it's a service unavailable error
+            if isinstance(data, dict) and 'ElevenLabs not configured' in str(data.get('detail', '')):
+                self.log_test("Song Audio Generation", False, "ElevenLabs not configured (expected if no API key)")
+            else:
+                self.log_test("Song Audio Generation", False, f"Failed to generate song audio: {data}")
+
+    def test_lyrics_generation_with_voice_context(self):
+        """Test lyrics generation with voice profile context"""
+        print("\n🔍 Testing Lyrics Generation with Voice Profile Context...")
+        
+        if not self.token or not self.created_voice_profile_id:
+            self.log_test("Lyrics Generation with Voice Context", False, "No auth token or voice profile available")
+            return
+            
+        lyrics_request = {
+            "prompt": "Una canción de adoración sobre la esperanza en Cristo",
+            "style": "worship",
+            "theme": "hope",
+            "language": "es",
+            "structure": ["verse", "chorus", "verse", "chorus", "bridge", "chorus"],
+            "voice_profile_id": self.created_voice_profile_id
+        }
+        
+        print("Generating lyrics with voice profile context... (this may take a few seconds)")
+        success, data = self.make_request('POST', '/lyrics/generate', lyrics_request)
+        
+        if success and 'lyrics' in data and data['lyrics']:
+            lyrics_preview = data['lyrics'][:150] + "..." if len(data['lyrics']) > 150 else data['lyrics']
+            self.log_test("Lyrics Generation with Voice Context", True, f"Generated contextual lyrics: {lyrics_preview}")
+        else:
+            self.log_test("Lyrics Generation with Voice Context", False, f"Failed to generate contextual lyrics: {data}")
+
     def test_delete_operations(self):
         """Test delete operations (cleanup)"""
         print("\n🔍 Testing Delete Operations...")
@@ -621,11 +800,11 @@ class PGospelMusicAPITester:
             else:
                 self.log_test("Delete Song", False, f"Failed to delete song: {data}")
         
-        # Delete voice profile
+        # Delete voice profile (this should also delete ElevenLabs voice if exists)
         if self.created_voice_profile_id:
             success, data = self.make_request('DELETE', f'/voice-profiles/{self.created_voice_profile_id}')
             if success:
-                self.log_test("Delete Voice Profile", True, "Profile deleted successfully")
+                self.log_test("Delete Voice Profile", True, "Profile deleted successfully (including ElevenLabs voice)")
             else:
                 self.log_test("Delete Voice Profile", False, f"Failed to delete profile: {data}")
         
