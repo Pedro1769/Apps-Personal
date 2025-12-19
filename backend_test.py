@@ -877,6 +877,10 @@ Amén"""
 
 def main():
     """Main test runner"""
+    print("🎵 PGospelMusic ElevenLabs Voice Cloning Integration Test Suite")
+    print("Testing: Voice cloning, TTS generation, song audio generation with cloned voice")
+    print("=" * 80)
+    
     tester = PGospelMusicAPITester()
     return tester.run_all_tests()
 
