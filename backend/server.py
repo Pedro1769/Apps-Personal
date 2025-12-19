@@ -1,14 +1,14 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -17,10 +17,10 @@ import bcrypt
 import aiofiles
 import subprocess
 import json
-import base64
-import io
 from emergentintegrations.llm.chat import LlmChat, UserMessage
-from elevenlabs import ElevenLabs, VoiceSettings
+
+# Import local voice engine
+from voice_engine import get_voice_engine, get_music_generator, LocalVoiceEngine, MusicGenerator
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -43,25 +43,23 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ.get('JWT_SECRET', 'pgospelmusic_secret')
 JWT_ALGORITHM = "HS256"
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
-ELEVENLABS_API_KEY = os.environ.get('ELEVENLABS_API_KEY', '')
 
-# ElevenLabs client
-eleven_client = ElevenLabs(api_key=ELEVENLABS_API_KEY) if ELEVENLABS_API_KEY else None
+# Initialize local voice engine
+voice_engine = get_voice_engine(AUDIO_DIR)
+music_generator = get_music_generator(AUDIO_DIR)
 
-app = FastAPI(title="PGospelMusic API")
+app = FastAPI(title="PGospelMusic API - Local Voice Engine")
 api_router = APIRouter(prefix="/api")
 security = HTTPBearer()
 
-# Mount static files for uploads
+# Mount static files
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Allowed audio formats
-ALLOWED_AUDIO_FORMATS = {'.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.wma', '.webm'}
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+ALLOWED_AUDIO_FORMATS = {'.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.webm'}
+MAX_FILE_SIZE = 50 * 1024 * 1024
 
 # ==================== MODELS ====================
 
@@ -101,7 +99,7 @@ class VoiceProfileResponse(BaseModel):
     created_at: str
     status: str
     analysis: Optional[dict] = None
-    elevenlabs_voice_id: Optional[str] = None
+    voice_cloned: bool = False
 
 class ProjectCreate(BaseModel):
     name: str
@@ -148,7 +146,7 @@ class SongResponse(BaseModel):
     instruments: List[str]
     lyrics: Optional[str]
     audio_url: Optional[str] = None
-    stems: Optional[dict] = None
+    backing_track_url: Optional[str] = None
     voice_profile_id: Optional[str] = None
     status: str
     created_at: str
@@ -166,18 +164,11 @@ class LyricsResponse(BaseModel):
     lyrics: str
     sections: List[dict]
 
-class TTSRequest(BaseModel):
-    text: str
+class GenerateAudioRequest(BaseModel):
     voice_profile_id: str
-    stability: Optional[float] = 0.5
-    similarity_boost: Optional[float] = 0.75
-    style: Optional[float] = 0.5
+    include_backing_track: bool = True
 
-class GenerateSongAudioRequest(BaseModel):
-    song_id: str
-    voice_profile_id: str
-
-# ==================== AUDIO ANALYSIS ====================
+# ==================== AUDIO HELPERS ====================
 
 def analyze_audio_file(file_path: str) -> dict:
     try:
@@ -192,47 +183,12 @@ def analyze_audio_file(file_path: str) -> dict:
                 'bitrate': int(format_info.get('bit_rate', 0)),
                 'sample_rate': int(audio_stream.get('sample_rate', 0)),
                 'channels': audio_stream.get('channels', 0),
-                'codec': audio_stream.get('codec_name', 'unknown'),
             }
     except Exception as e:
         logger.error(f"Error analyzing audio: {e}")
     return {}
 
-def extract_vocal_characteristics(file_path: str) -> dict:
-    try:
-        analysis = analyze_audio_file(file_path)
-        cmd = ['ffmpeg', '-i', str(file_path), '-af', 'volumedetect', '-f', 'null', '-']
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        stderr = result.stderr
-        
-        mean_volume = max_volume = None
-        for line in stderr.split('\n'):
-            if 'mean_volume' in line:
-                try:
-                    mean_volume = float(line.split(':')[1].strip().replace(' dB', ''))
-                except:
-                    pass
-            if 'max_volume' in line:
-                try:
-                    max_volume = float(line.split(':')[1].strip().replace(' dB', ''))
-                except:
-                    pass
-        
-        dynamic_range = abs(max_volume - mean_volume) if mean_volume and max_volume else 0
-        
-        return {
-            **analysis,
-            'mean_volume_db': mean_volume,
-            'max_volume_db': max_volume,
-            'dynamic_range_db': dynamic_range,
-            'estimated_intensity': 'high' if dynamic_range > 15 else 'medium' if dynamic_range > 8 else 'soft',
-            'quality': 'good' if analysis.get('sample_rate', 0) >= 44100 else 'acceptable',
-        }
-    except Exception as e:
-        logger.error(f"Error extracting vocal characteristics: {e}")
-        return {}
-
-# ==================== AUTH HELPERS ====================
+# ==================== AUTH ====================
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -241,11 +197,7 @@ def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
 def create_token(user_id: str, email: str) -> str:
-    payload = {
-        "user_id": user_id,
-        "email": email,
-        "exp": datetime.now(timezone.utc) + timedelta(days=7)
-    }
+    payload = {"user_id": user_id, "email": email, "exp": datetime.now(timezone.utc) + timedelta(days=7)}
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
@@ -260,9 +212,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-# ==================== AUTH ROUTES ====================
-
-@api_router.post("/auth/register", response_model=dict)
+@api_router.post("/auth/register")
 async def register(user_data: UserCreate):
     existing = await db.users.find_one({"email": user_data.email})
     if existing:
@@ -279,18 +229,17 @@ async def register(user_data: UserCreate):
     token = create_token(user["id"], user["email"])
     return {"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"]}}
 
-@api_router.post("/auth/login", response_model=dict)
+@api_router.post("/auth/login")
 async def login(credentials: UserLogin):
     user = await db.users.find_one({"email": credentials.email}, {"_id": 0})
     if not user or not verify_password(credentials.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
     token = create_token(user["id"], user["email"])
     return {"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"]}}
 
 @api_router.get("/auth/me", response_model=UserResponse)
 async def get_me(user: dict = Depends(get_current_user)):
-    return UserResponse(id=user["id"], email=user["email"], name=user["name"], created_at=user["created_at"])
+    return UserResponse(**user)
 
 # ==================== VOICE PROFILES ====================
 
@@ -308,7 +257,7 @@ async def create_voice_profile(profile_data: VoiceProfileCreate, user: dict = De
         "created_at": datetime.now(timezone.utc).isoformat(),
         "status": "pending",
         "analysis": None,
-        "elevenlabs_voice_id": None
+        "voice_cloned": False
     }
     await db.voice_profiles.insert_one(profile)
     return VoiceProfileResponse(**profile)
@@ -341,11 +290,11 @@ async def upload_voice_sample(
     
     file_ext = Path(file.filename).suffix.lower()
     if file_ext not in ALLOWED_AUDIO_FORMATS:
-        raise HTTPException(status_code=400, detail=f"Invalid format. Allowed: {', '.join(ALLOWED_AUDIO_FORMATS)}")
+        raise HTTPException(status_code=400, detail="Invalid format")
     
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="File too large. Max 50MB")
+        raise HTTPException(status_code=400, detail="File too large")
     
     sample_id = str(uuid.uuid4())
     filename = f"{user['id']}_{profile_id}_{sample_id}{file_ext}"
@@ -354,7 +303,7 @@ async def upload_voice_sample(
     async with aiofiles.open(file_path, 'wb') as f:
         await f.write(content)
     
-    analysis = extract_vocal_characteristics(str(file_path))
+    analysis = analyze_audio_file(str(file_path))
     
     sample = {
         "id": sample_id,
@@ -370,135 +319,88 @@ async def upload_voice_sample(
     
     await db.voice_profiles.update_one(
         {"id": profile_id},
-        {
-            "$push": {"audio_samples": sample},
-            "$set": {"status": "processing", "updated_at": datetime.now(timezone.utc).isoformat()}
-        }
+        {"$push": {"audio_samples": sample}, "$set": {"status": "processing"}}
     )
     
-    background_tasks.add_task(process_voice_profile, profile_id, user["id"])
+    background_tasks.add_task(process_voice_profile_local, profile_id, user["id"])
     
     return {"message": "Audio uploaded successfully", "sample": sample}
 
-async def process_voice_profile(profile_id: str, user_id: str):
-    """Process voice profile and create ElevenLabs clone if enough samples"""
+async def process_voice_profile_local(profile_id: str, user_id: str):
+    """Process voice profile using local voice engine"""
     try:
         profile = await db.voice_profiles.find_one({"id": profile_id}, {"_id": 0})
         if not profile or not profile.get("audio_samples"):
             return
         
         samples = profile["audio_samples"]
-        total_duration = sum(s.get("analysis", {}).get("duration", 0) for s in samples)
+        sample_paths = [str(AUDIO_DIR / s["filename"]) for s in samples if (AUDIO_DIR / s["filename"]).exists()]
         
-        # Aggregate analysis
-        avg_dynamic_range = []
-        avg_intensity = []
-        
-        for s in samples:
-            analysis = s.get("analysis", {})
-            if analysis.get("dynamic_range_db"):
-                avg_dynamic_range.append(analysis["dynamic_range_db"])
-            if analysis.get("estimated_intensity"):
-                intensity_map = {"soft": 1, "medium": 2, "high": 3}
-                avg_intensity.append(intensity_map.get(analysis["estimated_intensity"], 2))
-        
-        aggregated = {
-            "total_samples": len(samples),
-            "total_duration": total_duration,
-            "avg_dynamic_range": sum(avg_dynamic_range) / len(avg_dynamic_range) if avg_dynamic_range else 0,
-            "estimated_intensity": "high" if avg_intensity and sum(avg_intensity)/len(avg_intensity) > 2.5 else "medium",
-            "profile_quality": "excellent" if len(samples) >= 3 and total_duration >= 60 else "good" if len(samples) >= 2 else "needs_more_samples",
-            "analyzed_at": datetime.now(timezone.utc).isoformat()
-        }
-        
-        # Clone voice with ElevenLabs if we have enough samples
-        elevenlabs_voice_id = profile.get("elevenlabs_voice_id")
-        
-        if eleven_client and len(samples) >= 1 and total_duration >= 10 and not elevenlabs_voice_id:
-            try:
-                # Collect audio files for cloning
-                audio_files = []
-                for sample in samples[:5]:  # Max 5 samples for cloning
-                    file_path = AUDIO_DIR / sample["filename"]
-                    if file_path.exists():
-                        audio_files.append(open(file_path, 'rb'))
-                
-                if audio_files:
-                    # Create voice clone using ElevenLabs IVC (Instant Voice Cloning)
-                    voice = eleven_client.voices.ivc.create(
-                        name=f"PGospel_{profile['name']}_{profile_id[:8]}",
-                        files=audio_files,
-                        description=f"Voice profile for {profile['name']}. {profile.get('description', '')}"
-                    )
-                    elevenlabs_voice_id = voice.voice_id
-                    logger.info(f"Created ElevenLabs voice clone: {elevenlabs_voice_id}")
-                    
-                    # Close files
-                    for f in audio_files:
-                        f.close()
-                        
-            except Exception as e:
-                logger.error(f"Error creating ElevenLabs voice clone: {e}")
-        
-        # Update profile
-        await db.voice_profiles.update_one(
-            {"id": profile_id},
-            {
-                "$set": {
-                    "analysis": aggregated,
-                    "status": "ready" if elevenlabs_voice_id else ("ready" if aggregated["profile_quality"] != "needs_more_samples" else "processing"),
-                    "elevenlabs_voice_id": elevenlabs_voice_id
-                }
+        if sample_paths:
+            # Create voice profile in local engine
+            voice_profile = await voice_engine.create_voice_profile(
+                profile_id, 
+                profile["name"], 
+                sample_paths
+            )
+            
+            # Update database
+            aggregated = {
+                "total_samples": len(samples),
+                "total_duration": sum(s.get("analysis", {}).get("duration", 0) for s in samples),
+                "voice_characteristics": voice_profile.voice_characteristics,
+                "pitch_shift": voice_profile.pitch_shift,
+                "analyzed_at": datetime.now(timezone.utc).isoformat()
             }
-        )
+            
+            await db.voice_profiles.update_one(
+                {"id": profile_id},
+                {"$set": {
+                    "analysis": aggregated,
+                    "status": "ready",
+                    "voice_cloned": True
+                }}
+            )
+            logger.info(f"Voice profile {profile_id} processed successfully")
     except Exception as e:
         logger.error(f"Error processing voice profile: {e}")
 
 @api_router.post("/voice-profiles/{profile_id}/clone")
-async def clone_voice_elevenlabs(profile_id: str, user: dict = Depends(get_current_user)):
-    """Manually trigger voice cloning with ElevenLabs"""
-    if not eleven_client:
-        raise HTTPException(status_code=503, detail="ElevenLabs not configured")
-    
+async def clone_voice_local(profile_id: str, user: dict = Depends(get_current_user)):
+    """Manually trigger local voice cloning"""
     profile = await db.voice_profiles.find_one({"id": profile_id, "user_id": user["id"]})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
-    
-    if profile.get("elevenlabs_voice_id"):
-        return {"message": "Voice already cloned", "voice_id": profile["elevenlabs_voice_id"]}
     
     samples = profile.get("audio_samples", [])
     if not samples:
         raise HTTPException(status_code=400, detail="No audio samples to clone from")
     
-    try:
-        audio_files = []
-        for sample in samples[:5]:
-            file_path = AUDIO_DIR / sample["filename"]
-            if file_path.exists():
-                audio_files.append(open(file_path, 'rb'))
-        
-        if not audio_files:
-            raise HTTPException(status_code=400, detail="No valid audio files found")
-        
-        voice = eleven_client.voices.ivc.create(
-            name=f"PGospel_{profile['name']}_{profile_id[:8]}",
-            files=audio_files,
-            description=f"Voice profile for {profile['name']}. {profile.get('description', '')}"
-        )
-        
-        for f in audio_files:
-            f.close()
-        
-        await db.voice_profiles.update_one(
-            {"id": profile_id},
-            {"$set": {"elevenlabs_voice_id": voice.voice_id, "status": "ready"}}
-        )
-        
-        return {"message": "Voice cloned successfully", "voice_id": voice.voice_id}
-    except Exception as e:
-        logger.error(f"Error cloning voice: {e}")
-        raise HTTPException(status_code=500, detail=f"Error cloning voice: {str(e)}")
+    sample_paths = [str(AUDIO_DIR / s["filename"]) for s in samples if (AUDIO_DIR / s["filename"]).exists()]
+    
+    if not sample_paths:
+        raise HTTPException(status_code=400, detail="No valid audio files found")
+    
+    # Create voice profile in local engine
+    voice_profile = await voice_engine.create_voice_profile(profile_id, profile["name"], sample_paths)
+    
+    await db.voice_profiles.update_one(
+        {"id": profile_id},
+        {"$set": {
+            "voice_cloned": True,
+            "status": "ready",
+            "analysis": {
+                "voice_characteristics": voice_profile.voice_characteristics,
+                "pitch_shift": voice_profile.pitch_shift,
+                "cloned_at": datetime.now(timezone.utc).isoformat()
+            }
+        }}
+    )
+    
+    return {
+        "message": "Voice cloned successfully using local engine",
+        "characteristics": voice_profile.to_dict()
+    }
 
 @api_router.delete("/voice-profiles/{profile_id}/samples/{sample_id}")
 async def delete_voice_sample(profile_id: str, sample_id: str, user: dict = Depends(get_current_user)):
@@ -507,18 +409,12 @@ async def delete_voice_sample(profile_id: str, sample_id: str, user: dict = Depe
         raise HTTPException(status_code=404, detail="Profile not found")
     
     sample = next((s for s in profile.get("audio_samples", []) if s["id"] == sample_id), None)
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+    if sample:
+        file_path = AUDIO_DIR / sample["filename"]
+        if file_path.exists():
+            file_path.unlink()
     
-    file_path = AUDIO_DIR / sample["filename"]
-    if file_path.exists():
-        file_path.unlink()
-    
-    await db.voice_profiles.update_one(
-        {"id": profile_id},
-        {"$pull": {"audio_samples": {"id": sample_id}}}
-    )
-    
+    await db.voice_profiles.update_one({"id": profile_id}, {"$pull": {"audio_samples": {"id": sample_id}}})
     return {"message": "Sample deleted"}
 
 @api_router.delete("/voice-profiles/{profile_id}")
@@ -527,14 +423,6 @@ async def delete_voice_profile(profile_id: str, user: dict = Depends(get_current
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    # Delete ElevenLabs voice if exists
-    if eleven_client and profile.get("elevenlabs_voice_id"):
-        try:
-            eleven_client.voices.delete(profile["elevenlabs_voice_id"])
-        except:
-            pass
-    
-    # Delete all audio files
     for sample in profile.get("audio_samples", []):
         file_path = AUDIO_DIR / sample["filename"]
         if file_path.exists():
@@ -542,166 +430,6 @@ async def delete_voice_profile(profile_id: str, user: dict = Depends(get_current
     
     await db.voice_profiles.delete_one({"id": profile_id})
     return {"message": "Profile deleted"}
-
-# ==================== TEXT TO SPEECH ====================
-
-@api_router.post("/tts/generate")
-async def generate_tts(request: TTSRequest, user: dict = Depends(get_current_user)):
-    """Generate speech from text using cloned voice"""
-    if not eleven_client:
-        raise HTTPException(status_code=503, detail="ElevenLabs not configured")
-    
-    profile = await db.voice_profiles.find_one({"id": request.voice_profile_id, "user_id": user["id"]})
-    if not profile:
-        raise HTTPException(status_code=404, detail="Voice profile not found")
-    
-    voice_id = profile.get("elevenlabs_voice_id")
-    if not voice_id:
-        raise HTTPException(status_code=400, detail="Voice not cloned yet. Upload more samples or trigger cloning.")
-    
-    try:
-        voice_settings = VoiceSettings(
-            stability=request.stability,
-            similarity_boost=request.similarity_boost,
-            style=request.style,
-            use_speaker_boost=True
-        )
-        
-        audio_generator = eleven_client.text_to_speech.convert(
-            text=request.text,
-            voice_id=voice_id,
-            model_id="eleven_multilingual_v2",
-            voice_settings=voice_settings
-        )
-        
-        audio_data = b""
-        for chunk in audio_generator:
-            audio_data += chunk
-        
-        # Save audio file
-        filename = f"tts_{user['id']}_{uuid.uuid4()}.mp3"
-        file_path = AUDIO_DIR / filename
-        
-        async with aiofiles.open(file_path, 'wb') as f:
-            await f.write(audio_data)
-        
-        audio_url = f"/uploads/audio/{filename}"
-        
-        return {
-            "audio_url": audio_url,
-            "text": request.text,
-            "voice_id": voice_id,
-            "duration": analyze_audio_file(str(file_path)).get("duration", 0)
-        }
-    except Exception as e:
-        logger.error(f"Error generating TTS: {e}")
-        raise HTTPException(status_code=500, detail=f"Error generating speech: {str(e)}")
-
-@api_router.post("/songs/{song_id}/generate-audio")
-async def generate_song_audio(song_id: str, voice_profile_id: str, user: dict = Depends(get_current_user)):
-    """Generate audio for song lyrics using cloned voice"""
-    if not eleven_client:
-        raise HTTPException(status_code=503, detail="ElevenLabs not configured")
-    
-    song = await db.songs.find_one({"id": song_id, "user_id": user["id"]})
-    if not song:
-        raise HTTPException(status_code=404, detail="Song not found")
-    
-    if not song.get("lyrics"):
-        raise HTTPException(status_code=400, detail="Song has no lyrics to generate audio from")
-    
-    profile = await db.voice_profiles.find_one({"id": voice_profile_id, "user_id": user["id"]})
-    if not profile:
-        raise HTTPException(status_code=404, detail="Voice profile not found")
-    
-    voice_id = profile.get("elevenlabs_voice_id")
-    if not voice_id:
-        raise HTTPException(status_code=400, detail="Voice not cloned. Please clone your voice first.")
-    
-    try:
-        # Clean lyrics for TTS
-        lyrics_text = song["lyrics"]
-        # Remove section headers for cleaner speech
-        import re
-        clean_lyrics = re.sub(r'\[.*?\]|\(.*?\)|Verso \d+:|Coro:|Puente:|Pre-coro:|Intro:|Outro:', '', lyrics_text)
-        clean_lyrics = '\n'.join(line.strip() for line in clean_lyrics.split('\n') if line.strip())
-        
-        voice_settings = VoiceSettings(
-            stability=0.5,
-            similarity_boost=0.8,
-            style=0.6,
-            use_speaker_boost=True
-        )
-        
-        audio_generator = eleven_client.text_to_speech.convert(
-            text=clean_lyrics,
-            voice_id=voice_id,
-            model_id="eleven_multilingual_v2",
-            voice_settings=voice_settings
-        )
-        
-        audio_data = b""
-        for chunk in audio_generator:
-            audio_data += chunk
-        
-        # Save generated audio
-        filename = f"song_{song_id}_generated_{uuid.uuid4()}.mp3"
-        file_path = AUDIO_DIR / filename
-        
-        async with aiofiles.open(file_path, 'wb') as f:
-            await f.write(audio_data)
-        
-        audio_url = f"/uploads/audio/{filename}"
-        
-        # Update song with generated audio
-        await db.songs.update_one(
-            {"id": song_id},
-            {
-                "$set": {
-                    "audio_url": audio_url,
-                    "voice_profile_id": voice_profile_id,
-                    "status": "generated",
-                    "updated_at": datetime.now(timezone.utc).isoformat()
-                }
-            }
-        )
-        
-        duration = analyze_audio_file(str(file_path)).get("duration", 0)
-        
-        return {
-            "message": "Audio generated successfully",
-            "audio_url": audio_url,
-            "duration": duration,
-            "voice_id": voice_id
-        }
-    except Exception as e:
-        logger.error(f"Error generating song audio: {e}")
-        raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
-
-# ==================== ELEVENLABS VOICES ====================
-
-@api_router.get("/elevenlabs/voices")
-async def get_elevenlabs_voices(user: dict = Depends(get_current_user)):
-    """Get available ElevenLabs voices"""
-    if not eleven_client:
-        raise HTTPException(status_code=503, detail="ElevenLabs not configured")
-    
-    try:
-        voices = eleven_client.voices.get_all()
-        return {
-            "voices": [
-                {
-                    "voice_id": v.voice_id,
-                    "name": v.name,
-                    "category": v.category if hasattr(v, 'category') else "custom",
-                    "description": v.description if hasattr(v, 'description') else ""
-                }
-                for v in voices.voices
-            ]
-        }
-    except Exception as e:
-        logger.error(f"Error fetching voices: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== PROJECTS ====================
 
@@ -763,7 +491,7 @@ async def create_song(song_data: SongCreate, user: dict = Depends(get_current_us
         "instruments": song_data.instruments,
         "lyrics": None,
         "audio_url": None,
-        "stems": None,
+        "backing_track_url": None,
         "voice_profile_id": song_data.voice_profile_id,
         "status": "draft",
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -793,11 +521,147 @@ async def update_song_lyrics(song_id: str, lyrics: dict, user: dict = Depends(ge
     song = await db.songs.find_one({"id": song_id, "user_id": user["id"]})
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
-    
-    await db.songs.update_one({"id": song_id}, {
-        "$set": {"lyrics": lyrics.get("lyrics", ""), "updated_at": datetime.now(timezone.utc).isoformat()}
-    })
+    await db.songs.update_one({"id": song_id}, {"$set": {"lyrics": lyrics.get("lyrics", ""), "updated_at": datetime.now(timezone.utc).isoformat()}})
     return {"message": "Lyrics updated"}
+
+@api_router.post("/songs/{song_id}/generate-audio")
+async def generate_song_audio_local(
+    song_id: str,
+    voice_profile_id: str,
+    include_backing: bool = True,
+    user: dict = Depends(get_current_user)
+):
+    """Generate audio using local voice engine - NO external APIs"""
+    song = await db.songs.find_one({"id": song_id, "user_id": user["id"]})
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    
+    if not song.get("lyrics"):
+        raise HTTPException(status_code=400, detail="Song has no lyrics")
+    
+    profile = await db.voice_profiles.find_one({"id": voice_profile_id, "user_id": user["id"]})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Voice profile not found")
+    
+    if not profile.get("voice_cloned"):
+        raise HTTPException(status_code=400, detail="Voice not cloned yet. Upload samples first.")
+    
+    try:
+        # Clean lyrics for TTS
+        import re
+        lyrics_text = song["lyrics"]
+        clean_lyrics = re.sub(r'\[.*?\]|\(.*?\)|Verso \d+:|Coro:|Puente:|Pre-coro:|Intro:|Outro:', '', lyrics_text)
+        clean_lyrics = '\n'.join(line.strip() for line in clean_lyrics.split('\n') if line.strip())
+        
+        # Generate voice audio using local engine
+        voice_filename = f"song_{song_id}_voice_{uuid.uuid4()}.mp3"
+        voice_path = str(AUDIO_DIR / voice_filename)
+        
+        await voice_engine.synthesize_speech(
+            text=clean_lyrics,
+            output_path=voice_path,
+            profile_id=voice_profile_id,
+            language="es"
+        )
+        
+        voice_url = f"/uploads/audio/{voice_filename}"
+        backing_url = None
+        final_url = voice_url
+        
+        # Generate backing track if requested
+        if include_backing:
+            backing_filename = f"song_{song_id}_backing_{uuid.uuid4()}.mp3"
+            backing_path = str(AUDIO_DIR / backing_filename)
+            
+            # Get voice duration for backing track
+            voice_analysis = analyze_audio_file(voice_path)
+            voice_duration = voice_analysis.get("duration", 60)
+            
+            await music_generator.generate_backing_track(
+                output_path=backing_path,
+                key=song.get("key", "G"),
+                tempo=song.get("tempo", 120),
+                duration_seconds=voice_duration + 10,
+                style=song.get("style", "worship")
+            )
+            
+            backing_url = f"/uploads/audio/{backing_filename}"
+            
+            # Mix voice and backing track
+            mixed_filename = f"song_{song_id}_mixed_{uuid.uuid4()}.mp3"
+            mixed_path = str(AUDIO_DIR / mixed_filename)
+            
+            # Use ffmpeg to mix
+            mix_cmd = [
+                'ffmpeg', '-y',
+                '-i', voice_path,
+                '-i', backing_path,
+                '-filter_complex', '[0:a]volume=1.2[a1];[1:a]volume=0.4[a2];[a1][a2]amix=inputs=2:duration=longest',
+                '-acodec', 'libmp3lame', '-q:a', '2',
+                mixed_path
+            ]
+            result = subprocess.run(mix_cmd, capture_output=True, timeout=120)
+            
+            if result.returncode == 0:
+                final_url = f"/uploads/audio/{mixed_filename}"
+        
+        # Update song
+        await db.songs.update_one(
+            {"id": song_id},
+            {"$set": {
+                "audio_url": final_url,
+                "backing_track_url": backing_url,
+                "voice_profile_id": voice_profile_id,
+                "status": "generated",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        
+        final_analysis = analyze_audio_file(str(AUDIO_DIR / final_url.split('/')[-1]))
+        
+        return {
+            "message": "Audio generated successfully with local engine",
+            "audio_url": final_url,
+            "voice_url": voice_url,
+            "backing_track_url": backing_url,
+            "duration": final_analysis.get("duration", 0)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating audio: {e}")
+        raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
+
+@api_router.post("/songs/{song_id}/generate-backing-track")
+async def generate_backing_track(song_id: str, user: dict = Depends(get_current_user)):
+    """Generate only backing track for a song"""
+    song = await db.songs.find_one({"id": song_id, "user_id": user["id"]})
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    
+    try:
+        backing_filename = f"song_{song_id}_backing_{uuid.uuid4()}.mp3"
+        backing_path = str(AUDIO_DIR / backing_filename)
+        
+        await music_generator.generate_backing_track(
+            output_path=backing_path,
+            key=song.get("key", "G"),
+            tempo=song.get("tempo", 120),
+            duration_seconds=120,
+            style=song.get("style", "worship")
+        )
+        
+        backing_url = f"/uploads/audio/{backing_filename}"
+        
+        await db.songs.update_one(
+            {"id": song_id},
+            {"$set": {"backing_track_url": backing_url, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        
+        return {"message": "Backing track generated", "backing_track_url": backing_url}
+        
+    except Exception as e:
+        logger.error(f"Error generating backing track: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/songs/{song_id}/upload-audio")
 async def upload_song_audio(
@@ -811,15 +675,10 @@ async def upload_song_audio(
         raise HTTPException(status_code=404, detail="Song not found")
     
     if not file.filename:
-        raise HTTPException(status_code=400, detail="No file provided")
+        raise HTTPException(status_code=400, detail="No file")
     
     file_ext = Path(file.filename).suffix.lower()
-    if file_ext not in ALLOWED_AUDIO_FORMATS:
-        raise HTTPException(status_code=400, detail=f"Invalid format")
-    
     content = await file.read()
-    if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="File too large")
     
     filename = f"song_{song_id}_{stem_type}_{uuid.uuid4()}{file_ext}"
     file_path = AUDIO_DIR / filename
@@ -827,55 +686,43 @@ async def upload_song_audio(
     async with aiofiles.open(file_path, 'wb') as f:
         await f.write(content)
     
-    analysis = analyze_audio_file(str(file_path))
     audio_url = f"/uploads/audio/{filename}"
+    analysis = analyze_audio_file(str(file_path))
     
     if stem_type == "master":
-        await db.songs.update_one(
-            {"id": song_id},
-            {"$set": {"audio_url": audio_url, "updated_at": datetime.now(timezone.utc).isoformat()}}
-        )
-    else:
-        stems = song.get("stems", {}) or {}
-        stems[stem_type] = {"url": audio_url, "filename": filename, "duration": analysis.get("duration", 0)}
-        await db.songs.update_one(
-            {"id": song_id},
-            {"$set": {"stems": stems, "updated_at": datetime.now(timezone.utc).isoformat()}}
-        )
+        await db.songs.update_one({"id": song_id}, {"$set": {"audio_url": audio_url}})
     
-    return {"message": "Audio uploaded", "url": audio_url, "duration": analysis.get("duration", 0), "stem_type": stem_type}
+    return {"message": "Audio uploaded", "url": audio_url, "duration": analysis.get("duration", 0)}
 
 @api_router.delete("/songs/{song_id}")
 async def delete_song(song_id: str, user: dict = Depends(get_current_user)):
     song = await db.songs.find_one({"id": song_id, "user_id": user["id"]})
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
-    
     await db.songs.delete_one({"id": song_id})
     await db.projects.update_one({"id": song["project_id"]}, {"$pull": {"songs": song_id}})
     return {"message": "Song deleted"}
 
-# ==================== LYRICS GENERATION ====================
+# ==================== LYRICS ====================
 
 @api_router.post("/lyrics/generate", response_model=LyricsResponse)
 async def generate_lyrics(request: LyricsGenerateRequest, user: dict = Depends(get_current_user)):
     try:
-        # Build enhanced prompt with voice profile if provided
         enhanced_prompt = request.prompt
         
         if request.voice_profile_id:
             profile = await db.voice_profiles.find_one({"id": request.voice_profile_id, "user_id": user["id"]})
             if profile:
-                enhanced_prompt += f"\n\n[Contexto del cantante: Voz {profile.get('vocal_range', 'media')}, timbre {profile.get('timbre', 'cálido')}, estilo {profile.get('style', 'worship')}. {profile.get('description', '')}]"
+                enhanced_prompt += f"\n\n[Cantante: voz {profile.get('vocal_range', 'media')}, timbre {profile.get('timbre', 'cálido')}, estilo {profile.get('style', 'worship')}]"
         
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"lyrics-{user['id']}-{uuid.uuid4()}",
             system_message="""Eres un compositor experto en música cristiana y gospel. 
-Tu tarea es crear letras originales, profundas espiritualmente y poéticamente bellas.
-Las letras deben ser bíblicamente coherentes, inspiradoras y aptas para adoración congregacional.
+Crea letras originales, profundas espiritualmente y poéticamente bellas.
+Las letras deben ser bíblicamente coherentes e inspiradoras.
 NUNCA copies letras existentes. Crea contenido 100% original.
-Responde SOLO con las letras, estructuradas por secciones (Verso 1, Coro, etc.)."""
+Responde SOLO con las letras estructuradas por secciones."""
         ).with_model("openai", "gpt-5.1")
         
         structure_text = " -> ".join(request.structure)
@@ -883,12 +730,11 @@ Responde SOLO con las letras, estructuradas por secciones (Verso 1, Coro, etc.).
 Estructura: {structure_text}
 Idioma: {request.language}
 
-Descripción del usuario: {enhanced_prompt}
+Descripción: {enhanced_prompt}
 
-Genera letras originales y profundas para esta canción de adoración."""
+Genera letras originales para esta canción de adoración."""
         
-        user_message = UserMessage(text=prompt)
-        response = await chat.send_message(user_message)
+        response = await chat.send_message(UserMessage(text=prompt))
         
         sections = []
         current_section = {"type": "unknown", "content": ""}
@@ -897,7 +743,7 @@ Genera letras originales y profundas para esta canción de adoración."""
             if not line:
                 continue
             lower = line.lower()
-            if any(s in lower for s in ["verso", "verse", "coro", "chorus", "puente", "bridge", "intro", "outro", "pre-coro", "pre-chorus"]):
+            if any(s in lower for s in ["verso", "verse", "coro", "chorus", "puente", "bridge", "intro", "outro"]):
                 if current_section["content"]:
                     sections.append(current_section)
                 section_type = "verse"
@@ -905,12 +751,6 @@ Genera letras originales y profundas para esta canción de adoración."""
                     section_type = "chorus"
                 elif "puente" in lower or "bridge" in lower:
                     section_type = "bridge"
-                elif "intro" in lower:
-                    section_type = "intro"
-                elif "outro" in lower:
-                    section_type = "outro"
-                elif "pre" in lower:
-                    section_type = "pre-chorus"
                 current_section = {"type": section_type, "title": line, "content": ""}
             else:
                 current_section["content"] += line + "\n"
@@ -921,7 +761,7 @@ Genera letras originales y profundas para esta canción de adoración."""
         return LyricsResponse(lyrics=response, sections=sections)
     except Exception as e:
         logger.error(f"Error generating lyrics: {e}")
-        raise HTTPException(status_code=500, detail=f"Error generating lyrics: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== EXPORT ====================
 
@@ -932,50 +772,67 @@ async def export_song(song_id: str, format: str = "mp3", user: dict = Depends(ge
         raise HTTPException(status_code=404, detail="Song not found")
     
     if not song.get("audio_url"):
-        raise HTTPException(status_code=400, detail="Song has no audio to export")
+        raise HTTPException(status_code=400, detail="No audio to export")
     
-    # Handle different audio_url formats
     audio_url = song["audio_url"]
-    if audio_url.startswith("/uploads/"):
-        source_path = ROOT_DIR / audio_url.lstrip("/")
-    else:
-        source_path = ROOT_DIR / "uploads" / audio_url.lstrip("/")
+    source_path = AUDIO_DIR / Path(audio_url).name
     
-    logger.info(f"Export - Looking for audio at: {source_path}")
     if not source_path.exists():
-        # Try alternative path
-        alt_path = AUDIO_DIR / Path(audio_url).name
-        if alt_path.exists():
-            source_path = alt_path
-        else:
-            raise HTTPException(status_code=404, detail=f"Audio file not found: {source_path}")
+        raise HTTPException(status_code=404, detail="Audio file not found")
     
-    safe_title = "".join(c for c in song["title"] if c.isalnum() or c in " -_").strip()
+    safe_title = "".join(c for c in song["title"] if c.isalnum() or c in " -_").strip() or "song"
     export_filename = f"{safe_title}_{song_id[:8]}.{format}"
     export_path = EXPORTS_DIR / export_filename
     
     if format == "wav":
-        cmd = ['ffmpeg', '-y', '-i', str(source_path), '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2', str(export_path)]
+        cmd = ['ffmpeg', '-y', '-i', str(source_path), '-acodec', 'pcm_s16le', '-ar', '44100', str(export_path)]
     else:
         cmd = ['ffmpeg', '-y', '-i', str(source_path), '-acodec', 'libmp3lame', '-q:a', '2', str(export_path)]
     
-    result = subprocess.run(cmd, capture_output=True, timeout=120)
-    if result.returncode != 0:
-        raise HTTPException(status_code=500, detail="Export failed")
+    subprocess.run(cmd, capture_output=True, timeout=120)
     
     return FileResponse(path=str(export_path), filename=export_filename, media_type=f"audio/{format}")
+
+# ==================== TTS DIRECT ====================
+
+@api_router.post("/tts/generate")
+async def generate_tts_local(text: str, voice_profile_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Generate TTS using local engine - NO external APIs"""
+    try:
+        filename = f"tts_{user['id']}_{uuid.uuid4()}.mp3"
+        output_path = str(AUDIO_DIR / filename)
+        
+        await voice_engine.synthesize_speech(
+            text=text,
+            output_path=output_path,
+            profile_id=voice_profile_id,
+            language="es"
+        )
+        
+        return {
+            "audio_url": f"/uploads/audio/{filename}",
+            "text": text,
+            "engine": "local"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== HEALTH ====================
 
 @api_router.get("/")
 async def root():
-    return {"message": "PGospelMusic API", "version": "2.0.0", "elevenlabs": bool(eleven_client)}
+    return {
+        "message": "PGospelMusic API",
+        "version": "3.0.0",
+        "engine": "local",
+        "features": ["voice_cloning", "tts", "music_generation", "lyrics_ai"]
+    }
 
 @api_router.get("/health")
 async def health():
-    return {"status": "healthy", "elevenlabs_configured": bool(eleven_client)}
+    return {"status": "healthy", "engine": "local", "external_apis": False}
 
-# Include router and middleware
+# Include router
 app.include_router(api_router)
 
 app.add_middleware(
