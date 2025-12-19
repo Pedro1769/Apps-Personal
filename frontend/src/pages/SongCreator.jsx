@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
-  Music4, Wand2, Save, Loader2, Plus, Play, Pause,
+  Music4, Wand2, Save, Loader2, Play, Pause,
   SkipBack, SkipForward, Volume2, VolumeX, Download,
   Layers, Settings2, ChevronDown, ChevronUp, Sparkles,
-  Upload, FileAudio, X, Check
+  Upload, FileAudio, X, Check, Mic, User
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -70,7 +70,7 @@ const themes = [
 const SongCreator = ({ token }) => {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project');
-  const audioRef = useRef(new Audio());
+  const audioRef = useRef(null);
   const fileInputRef = useRef(null);
   const stemFileInputRef = useRef(null);
 
@@ -87,9 +87,12 @@ const SongCreator = ({ token }) => {
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [currentStemUpload, setCurrentStemUpload] = useState(null);
-  const [stemVolumes, setStemVolumes] = useState({});
-  const [mutedStems, setMutedStems] = useState({});
   const [savedSongId, setSavedSongId] = useState(null);
+  
+  // Voice profiles
+  const [voiceProfiles, setVoiceProfiles] = useState([]);
+  const [selectedVoiceProfile, setSelectedVoiceProfile] = useState('');
+  const [loadingProfiles, setLoadingProfiles] = useState(true);
 
   const [song, setSong] = useState({
     title: '',
@@ -109,33 +112,81 @@ const SongCreator = ({ token }) => {
   const [lyricsPrompt, setLyricsPrompt] = useState('');
   const [lyricsTheme, setLyricsTheme] = useState('worship');
 
+  // Fetch voice profiles on mount
   useEffect(() => {
+    const fetchVoiceProfiles = async () => {
+      try {
+        const response = await axios.get(`${API}/voice-profiles`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setVoiceProfiles(response.data);
+        // Auto-select first ready profile
+        const readyProfile = response.data.find(p => p.status === 'ready' && p.audio_samples?.length > 0);
+        if (readyProfile) {
+          setSelectedVoiceProfile(readyProfile.id);
+        }
+      } catch (error) {
+        console.error('Error fetching voice profiles:', error);
+      } finally {
+        setLoadingProfiles(false);
+      }
+    };
+
+    if (token) {
+      fetchVoiceProfiles();
+    }
+  }, [token]);
+
+  // Audio player setup
+  useEffect(() => {
+    audioRef.current = new Audio();
     const audio = audioRef.current;
     
-    audio.addEventListener('timeupdate', () => {
-      setCurrentTime(audio.currentTime);
-      if (audio.duration) {
-        setProgress([(audio.currentTime / audio.duration) * 100]);
+    const handleTimeUpdate = () => {
+      if (audio && !isNaN(audio.currentTime)) {
+        setCurrentTime(audio.currentTime);
+        if (audio.duration && !isNaN(audio.duration)) {
+          setProgress([(audio.currentTime / audio.duration) * 100]);
+        }
       }
-    });
+    };
     
-    audio.addEventListener('loadedmetadata', () => {
-      setDuration(audio.duration);
-    });
+    const handleLoadedMetadata = () => {
+      if (audio && !isNaN(audio.duration)) {
+        setDuration(audio.duration);
+      }
+    };
     
-    audio.addEventListener('ended', () => {
+    const handleEnded = () => {
       setIsPlaying(false);
       setProgress([0]);
       setCurrentTime(0);
-    });
+    };
+
+    const handleError = (e) => {
+      console.error('Audio error:', e);
+      setIsPlaying(false);
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('error', handleError);
 
     return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('error', handleError);
       audio.pause();
+      audio.src = '';
     };
   }, []);
 
   useEffect(() => {
-    audioRef.current.volume = isMuted ? 0 : volume[0] / 100;
+    if (audioRef.current) {
+      audioRef.current.volume = isMuted ? 0 : volume[0] / 100;
+    }
   }, [volume, isMuted]);
 
   const formatTime = (seconds) => {
@@ -176,7 +227,6 @@ const SongCreator = ({ token }) => {
       
       setSavedSongId(response.data.id);
       
-      // Save lyrics if present
       if (song.lyrics) {
         await axios.put(
           `${API}/songs/${response.data.id}/lyrics`,
@@ -201,10 +251,24 @@ const SongCreator = ({ token }) => {
 
     setGeneratingLyrics(true);
     try {
+      // Build enhanced prompt with voice profile info
+      let enhancedPrompt = lyricsPrompt;
+      
+      if (selectedVoiceProfile) {
+        const profile = voiceProfiles.find(p => p.id === selectedVoiceProfile);
+        if (profile) {
+          enhancedPrompt += `\n\n[Contexto del cantante: Voz ${profile.vocal_range}, timbre ${profile.timbre}, estilo ${profile.style}. ${profile.description || ''}]`;
+        }
+      }
+
+      // Add song details to prompt for better context
+      enhancedPrompt += `\n\n[Configuración musical: Tempo ${song.tempo} BPM, Tonalidad ${song.key}, Género ${song.genre}, Atmósfera ${song.mood}]`;
+      enhancedPrompt += `\n[Instrumentación: ${song.instruments.join(', ')}]`;
+
       const response = await axios.post(
         `${API}/lyrics/generate`,
         {
-          prompt: lyricsPrompt,
+          prompt: enhancedPrompt,
           style: song.style,
           theme: lyricsTheme,
           language: 'es',
@@ -229,17 +293,6 @@ const SongCreator = ({ token }) => {
 
     if (!savedSongId) {
       toast.error('Guarda la canción primero antes de subir audio');
-      return;
-    }
-
-    const allowedTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/x-m4a', 'audio/flac'];
-    if (!allowedTypes.some(type => file.type.includes(type.split('/')[1]))) {
-      toast.error('Formato no soportado. Usa MP3, WAV, OGG, M4A o FLAC');
-      return;
-    }
-
-    if (file.size > 50 * 1024 * 1024) {
-      toast.error('Archivo muy grande. Máximo 50MB');
       return;
     }
 
@@ -269,8 +322,9 @@ const SongCreator = ({ token }) => {
 
       if (stemType === 'master') {
         setSong({ ...song, audio_url: response.data.url });
-        // Load audio into player
-        audioRef.current.src = `${BACKEND_URL}${response.data.url}`;
+        if (audioRef.current) {
+          audioRef.current.src = `${BACKEND_URL}${response.data.url}`;
+        }
       } else {
         const newStems = { ...(song.stems || {}), [stemType]: response.data };
         setSong({ ...song, stems: newStems });
@@ -289,24 +343,31 @@ const SongCreator = ({ token }) => {
     }
   };
 
-  const handlePlayPause = () => {
+  const handlePlayPause = useCallback(() => {
     if (!song.audio_url) {
       toast.error('Sube un archivo de audio primero');
       return;
     }
 
+    if (!audioRef.current) return;
+
     if (isPlaying) {
       audioRef.current.pause();
+      setIsPlaying(false);
     } else {
-      if (!audioRef.current.src) {
+      if (!audioRef.current.src || audioRef.current.src === '') {
         audioRef.current.src = `${BACKEND_URL}${song.audio_url}`;
       }
-      audioRef.current.play();
+      audioRef.current.play().catch(err => {
+        console.error('Play error:', err);
+        toast.error('Error al reproducir audio');
+      });
+      setIsPlaying(true);
     }
-    setIsPlaying(!isPlaying);
-  };
+  }, [song.audio_url, isPlaying]);
 
   const handleSeek = (value) => {
+    if (!audioRef.current || !duration) return;
     const newTime = (value[0] / 100) * duration;
     audioRef.current.currentTime = newTime;
     setProgress(value);
@@ -320,6 +381,7 @@ const SongCreator = ({ token }) => {
     }
 
     try {
+      toast.info(`Exportando a ${format.toUpperCase()}...`);
       const response = await axios.post(
         `${API}/songs/${savedSongId}/export?format=${format}`,
         {},
@@ -358,6 +420,11 @@ const SongCreator = ({ token }) => {
     setSong({ ...song, instruments: newInstruments });
   };
 
+  const getSelectedProfileInfo = () => {
+    if (!selectedVoiceProfile) return null;
+    return voiceProfiles.find(p => p.id === selectedVoiceProfile);
+  };
+
   return (
     <div className="min-h-screen pt-20 pb-32">
       {/* Hidden file inputs */}
@@ -371,7 +438,7 @@ const SongCreator = ({ token }) => {
       <input
         type="file"
         ref={stemFileInputRef}
-        onChange={(e) => handleAudioUpload(e, currentStemUpload)}
+        onChange={(e) => handleAudioUpload(e, currentStemUpload || 'master')}
         accept="audio/*"
         className="hidden"
       />
@@ -446,10 +513,95 @@ const SongCreator = ({ token }) => {
         <div className="grid grid-cols-12 gap-6">
           {/* Left Panel - Controls */}
           <div className="col-span-12 lg:col-span-4 space-y-6">
+            {/* Voice Profile Selector */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="card-divine"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-lg bg-[#7C5AB9]/20 flex items-center justify-center">
+                  <Mic className="w-5 h-5 text-[#A680FF]" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-[#E6E7E9]">Tu Perfil de Voz</h3>
+                  <p className="text-xs text-[#6B7280]">Usa tu identidad vocal</p>
+                </div>
+              </div>
+
+              {loadingProfiles ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="w-5 h-5 text-[#7C5AB9] animate-spin" />
+                </div>
+              ) : voiceProfiles.length === 0 ? (
+                <div className="p-4 rounded-lg bg-orange-500/10 border border-orange-500/20">
+                  <p className="text-orange-400 text-sm">
+                    No tienes perfiles de voz. Ve a Voice Studio para crear uno y subir muestras de tu voz.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Select value={selectedVoiceProfile} onValueChange={setSelectedVoiceProfile}>
+                    <SelectTrigger data-testid="voice-profile-select" className="input-divine">
+                      <SelectValue placeholder="Selecciona tu perfil de voz" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#1A1D23] border-white/10">
+                      <SelectItem value="" className="text-[#6B7280]">
+                        Sin perfil de voz
+                      </SelectItem>
+                      {voiceProfiles.map((profile) => (
+                        <SelectItem 
+                          key={profile.id} 
+                          value={profile.id}
+                          className="text-[#E6E7E9] hover:bg-white/10"
+                          disabled={profile.status !== 'ready' || !profile.audio_samples?.length}
+                        >
+                          <div className="flex items-center gap-2">
+                            <User className="w-4 h-4" />
+                            <span>{profile.name}</span>
+                            {profile.status === 'ready' && profile.audio_samples?.length > 0 && (
+                              <Check className="w-3 h-3 text-green-500" />
+                            )}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {/* Selected profile info */}
+                  {getSelectedProfileInfo() && (
+                    <div className="p-3 rounded-lg bg-[#7C5AB9]/10 border border-[#7C5AB9]/20">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Mic className="w-4 h-4 text-[#A680FF]" />
+                        <span className="text-sm font-medium text-[#E6E7E9]">
+                          {getSelectedProfileInfo().name}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <span className="text-[#6B7280]">Rango:</span>{' '}
+                          <span className="text-[#A9ADB1] capitalize">{getSelectedProfileInfo().vocal_range}</span>
+                        </div>
+                        <div>
+                          <span className="text-[#6B7280]">Timbre:</span>{' '}
+                          <span className="text-[#A9ADB1] capitalize">{getSelectedProfileInfo().timbre}</span>
+                        </div>
+                        <div>
+                          <span className="text-[#6B7280]">Muestras:</span>{' '}
+                          <span className="text-[#D8A45A]">{getSelectedProfileInfo().audio_samples?.length || 0}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </motion.div>
+
             {/* AI Lyrics Generator */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
               className="card-divine"
             >
               <div className="flex items-center gap-3 mb-4">
@@ -464,7 +616,7 @@ const SongCreator = ({ token }) => {
 
               <div className="space-y-4">
                 <div>
-                  <Label className="text-[#A9ADB1] text-sm">Tema</Label>
+                  <Label className="text-[#A9ADB1] text-sm">Tema Espiritual</Label>
                   <Select value={lyricsTheme} onValueChange={setLyricsTheme}>
                     <SelectTrigger data-testid="lyrics-theme-select" className="input-divine mt-1">
                       <SelectValue />
@@ -485,15 +637,18 @@ const SongCreator = ({ token }) => {
 
                 <div>
                   <Label className="text-[#A9ADB1] text-sm">
-                    Descripción (sin límites)
+                    Descripción Detallada (sin límites)
                   </Label>
                   <Textarea
                     value={lyricsPrompt}
                     onChange={(e) => setLyricsPrompt(e.target.value)}
-                    placeholder="Describe la canción que quieres crear..."
+                    placeholder="Describe tu canción en detalle: el mensaje, la atmósfera, versículos bíblicos de inspiración, emociones, momentos congregacionales que quieres crear... Mientras más detalles, mejor resultado."
                     data-testid="lyrics-prompt-input"
-                    className="input-divine mt-1 min-h-[150px]"
+                    className="input-divine mt-1 min-h-[180px]"
                   />
+                  <p className="text-xs text-[#6B7280] mt-1">
+                    {selectedVoiceProfile && '✓ Se usará tu perfil de voz para personalizar las letras'}
+                  </p>
                 </div>
 
                 <Button
@@ -510,7 +665,7 @@ const SongCreator = ({ token }) => {
                   ) : (
                     <>
                       <Sparkles className="w-5 h-5 mr-2" />
-                      Generar Letras
+                      Generar Letras con IA
                     </>
                   )}
                 </Button>
@@ -521,7 +676,7 @@ const SongCreator = ({ token }) => {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
+              transition={{ delay: 0.2 }}
               className="card-divine"
             >
               <div className="flex items-center gap-3 mb-4">
@@ -735,7 +890,7 @@ const SongCreator = ({ token }) => {
                         size="sm"
                         onClick={() => {
                           navigator.clipboard.writeText(song.lyrics);
-                          toast.success('Copiado');
+                          toast.success('Copiado al portapapeles');
                         }}
                         className="text-[#A9ADB1] hover:text-[#D8A45A]"
                       >
@@ -840,7 +995,7 @@ const SongCreator = ({ token }) => {
                                 disabled={!savedSongId || uploadingAudio}
                                 onClick={() => {
                                   setCurrentStemUpload(stem.id);
-                                  stemFileInputRef.current?.click();
+                                  setTimeout(() => stemFileInputRef.current?.click(), 100);
                                 }}
                                 className="text-[#A9ADB1] hover:text-[#D8A45A]"
                               >
@@ -910,8 +1065,11 @@ const SongCreator = ({ token }) => {
                 variant="ghost" 
                 size="sm" 
                 onClick={() => {
-                  audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 10);
+                  if (audioRef.current) {
+                    audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 10);
+                  }
                 }}
+                disabled={!song.audio_url}
                 className="text-[#6B7280] hover:text-[#E6E7E9]"
               >
                 <SkipBack className="w-5 h-5" />
@@ -919,7 +1077,8 @@ const SongCreator = ({ token }) => {
               <Button
                 onClick={handlePlayPause}
                 data-testid="play-pause-btn"
-                className="w-12 h-12 rounded-full bg-[#D8A45A] hover:bg-[#E6B86E] text-[#0B0C0E]"
+                disabled={!song.audio_url}
+                className="w-12 h-12 rounded-full bg-[#D8A45A] hover:bg-[#E6B86E] text-[#0B0C0E] disabled:opacity-50"
               >
                 {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
               </Button>
@@ -927,8 +1086,11 @@ const SongCreator = ({ token }) => {
                 variant="ghost" 
                 size="sm" 
                 onClick={() => {
-                  audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + 10);
+                  if (audioRef.current && duration) {
+                    audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + 10);
+                  }
                 }}
+                disabled={!song.audio_url}
                 className="text-[#6B7280] hover:text-[#E6E7E9]"
               >
                 <SkipForward className="w-5 h-5" />
