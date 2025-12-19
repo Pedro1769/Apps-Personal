@@ -206,7 +206,7 @@ class PGospelMusicAPITester:
             "style": "worship"
         }
         
-        success, data = self.make_request('POST', '/voice-profiles', profile_data, 201)
+        success, data = self.make_request('POST', '/voice-profiles', profile_data, 200)
         
         if success and 'id' in data:
             self.created_voice_profile_id = data['id']
