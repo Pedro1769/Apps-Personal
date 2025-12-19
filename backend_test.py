@@ -639,7 +639,7 @@ class PGospelMusicAPITester:
 
     def run_all_tests(self):
         """Run all API tests"""
-        print("🎵 Starting PGospelMusic API Testing Suite")
+        print("🎵 Starting PGospelMusic API Testing Suite - Audio Upload Focus")
         print(f"🌐 Base URL: {self.base_url}")
         print("=" * 60)
         
@@ -662,6 +662,14 @@ class PGospelMusicAPITester:
         # AI features
         self.test_lyrics_generation()
         self.test_update_song_lyrics()
+        
+        # NEW AUDIO UPLOAD FEATURES
+        print("\n🎵 Testing NEW Audio Upload Features...")
+        self.test_voice_profile_audio_upload()
+        self.test_song_audio_upload()
+        self.test_song_stem_upload()
+        self.test_song_export()
+        self.test_static_file_serving()
         
         # Cleanup
         self.test_delete_operations()
