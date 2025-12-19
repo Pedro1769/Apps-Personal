@@ -424,10 +424,10 @@ async def process_voice_profile(profile_id: str, user_id: str):
                         audio_files.append(open(file_path, 'rb'))
                 
                 if audio_files:
-                    # Create voice clone using ElevenLabs IVC
-                    voice = eleven_client.voices.add(
+                    # Create voice clone using ElevenLabs clone_voice_from_files
+                    voice = eleven_client.voices.clone_voice_from_files(
                         name=f"PGospel_{profile['name']}_{profile_id[:8]}",
-                        files=audio_files,
+                        files=[f.name for f in audio_files],  # Use file paths instead of file objects
                         description=f"Voice profile for {profile['name']}. {profile.get('description', '')}"
                     )
                     elevenlabs_voice_id = voice.voice_id
