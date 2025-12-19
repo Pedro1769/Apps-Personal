@@ -320,6 +320,291 @@ class PGospelMusicAPITester:
         else:
             self.log_test("Update Song Lyrics", False, f"Failed to update lyrics: {data}")
 
+    def test_voice_profile_audio_upload(self):
+        """Test voice profile audio upload functionality"""
+        print("\n🔍 Testing Voice Profile Audio Upload...")
+        
+        if not self.token or not self.created_voice_profile_id:
+            self.log_test("Voice Profile Audio Upload", False, "No auth token or voice profile ID available")
+            return
+        
+        # Create a simple test audio file (WAV format)
+        import io
+        import wave
+        import struct
+        
+        # Generate a simple sine wave audio file
+        sample_rate = 44100
+        duration = 2  # 2 seconds
+        frequency = 440  # A4 note
+        
+        # Create WAV file in memory
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, 'wb') as wav_file:
+            wav_file.setnchannels(1)  # Mono
+            wav_file.setsampwidth(2)  # 16-bit
+            wav_file.setframerate(sample_rate)
+            
+            for i in range(int(sample_rate * duration)):
+                value = int(32767 * 0.3 * (i % (sample_rate // frequency)) / (sample_rate // frequency))
+                wav_file.writeframes(struct.pack('<h', value))
+        
+        wav_buffer.seek(0)
+        
+        # Test audio upload
+        url = f"{self.base_url}/voice-profiles/{self.created_voice_profile_id}/upload"
+        headers = {'Authorization': f'Bearer {self.token}'}
+        
+        files = {'file': ('test_voice_sample.wav', wav_buffer.getvalue(), 'audio/wav')}
+        
+        try:
+            response = requests.post(url, headers=headers, files=files, timeout=30)
+            success = response.status_code == 200
+            
+            if success:
+                data = response.json()
+                if 'sample' in data and 'analysis' in data['sample']:
+                    analysis = data['sample']['analysis']
+                    self.log_test("Voice Profile Audio Upload", True, 
+                                f"Duration: {analysis.get('duration', 0):.1f}s, "
+                                f"Sample Rate: {analysis.get('sample_rate', 0)}Hz")
+                else:
+                    self.log_test("Voice Profile Audio Upload", True, "Audio uploaded successfully")
+            else:
+                try:
+                    error_data = response.json()
+                    self.log_test("Voice Profile Audio Upload", False, f"Upload failed: {error_data}")
+                except:
+                    self.log_test("Voice Profile Audio Upload", False, f"Upload failed with status {response.status_code}")
+                    
+        except requests.exceptions.RequestException as e:
+            self.log_test("Voice Profile Audio Upload", False, f"Request error: {str(e)}")
+
+    def test_song_audio_upload(self):
+        """Test song audio upload functionality"""
+        print("\n🔍 Testing Song Audio Upload...")
+        
+        if not self.token or not self.created_song_id:
+            self.log_test("Song Audio Upload", False, "No auth token or song ID available")
+            return
+        
+        # Create a simple test audio file (MP3-like, but we'll use WAV for simplicity)
+        import io
+        import wave
+        import struct
+        
+        # Generate a simple audio file
+        sample_rate = 44100
+        duration = 3  # 3 seconds
+        frequency = 523  # C5 note
+        
+        # Create WAV file in memory
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, 'wb') as wav_file:
+            wav_file.setnchannels(2)  # Stereo
+            wav_file.setsampwidth(2)  # 16-bit
+            wav_file.setframerate(sample_rate)
+            
+            for i in range(int(sample_rate * duration)):
+                value = int(32767 * 0.5 * (i % (sample_rate // frequency)) / (sample_rate // frequency))
+                # Stereo: same value for both channels
+                wav_file.writeframes(struct.pack('<hh', value, value))
+        
+        wav_buffer.seek(0)
+        
+        # Test master audio upload
+        url = f"{self.base_url}/songs/{self.created_song_id}/upload-audio"
+        headers = {'Authorization': f'Bearer {self.token}'}
+        
+        files = {'file': ('test_song_master.wav', wav_buffer.getvalue(), 'audio/wav')}
+        data = {'stem_type': 'master'}
+        
+        try:
+            response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
+            success = response.status_code == 200
+            
+            if success:
+                response_data = response.json()
+                if 'url' in response_data and 'duration' in response_data:
+                    self.log_test("Song Audio Upload (Master)", True, 
+                                f"Duration: {response_data.get('duration', 0):.1f}s, "
+                                f"URL: {response_data.get('url', '')}")
+                else:
+                    self.log_test("Song Audio Upload (Master)", True, "Master audio uploaded successfully")
+            else:
+                try:
+                    error_data = response.json()
+                    self.log_test("Song Audio Upload (Master)", False, f"Upload failed: {error_data}")
+                except:
+                    self.log_test("Song Audio Upload (Master)", False, f"Upload failed with status {response.status_code}")
+                    
+        except requests.exceptions.RequestException as e:
+            self.log_test("Song Audio Upload (Master)", False, f"Request error: {str(e)}")
+
+    def test_song_stem_upload(self):
+        """Test song stem upload functionality"""
+        print("\n🔍 Testing Song Stem Upload...")
+        
+        if not self.token or not self.created_song_id:
+            self.log_test("Song Stem Upload", False, "No auth token or song ID available")
+            return
+        
+        # Create a simple test audio file for vocals stem
+        import io
+        import wave
+        import struct
+        
+        # Generate a simple audio file
+        sample_rate = 44100
+        duration = 2  # 2 seconds
+        frequency = 330  # E4 note
+        
+        # Create WAV file in memory
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, 'wb') as wav_file:
+            wav_file.setnchannels(1)  # Mono for vocals
+            wav_file.setsampwidth(2)  # 16-bit
+            wav_file.setframerate(sample_rate)
+            
+            for i in range(int(sample_rate * duration)):
+                value = int(32767 * 0.4 * (i % (sample_rate // frequency)) / (sample_rate // frequency))
+                wav_file.writeframes(struct.pack('<h', value))
+        
+        wav_buffer.seek(0)
+        
+        # Test vocals stem upload
+        url = f"{self.base_url}/songs/{self.created_song_id}/upload-audio"
+        headers = {'Authorization': f'Bearer {self.token}'}
+        
+        files = {'file': ('test_vocals_stem.wav', wav_buffer.getvalue(), 'audio/wav')}
+        data = {'stem_type': 'vocals'}
+        
+        try:
+            response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
+            success = response.status_code == 200
+            
+            if success:
+                response_data = response.json()
+                if 'url' in response_data and 'stem_type' in response_data:
+                    self.log_test("Song Stem Upload (Vocals)", True, 
+                                f"Stem: {response_data.get('stem_type', '')}, "
+                                f"Duration: {response_data.get('duration', 0):.1f}s")
+                else:
+                    self.log_test("Song Stem Upload (Vocals)", True, "Vocals stem uploaded successfully")
+            else:
+                try:
+                    error_data = response.json()
+                    self.log_test("Song Stem Upload (Vocals)", False, f"Upload failed: {error_data}")
+                except:
+                    self.log_test("Song Stem Upload (Vocals)", False, f"Upload failed with status {response.status_code}")
+                    
+        except requests.exceptions.RequestException as e:
+            self.log_test("Song Stem Upload (Vocals)", False, f"Request error: {str(e)}")
+
+    def test_song_export(self):
+        """Test song export functionality"""
+        print("\n🔍 Testing Song Export...")
+        
+        if not self.token or not self.created_song_id:
+            self.log_test("Song Export", False, "No auth token or song ID available")
+            return
+        
+        # Test MP3 export
+        url = f"{self.base_url}/songs/{self.created_song_id}/export?format=mp3"
+        headers = {'Authorization': f'Bearer {self.token}'}
+        
+        try:
+            response = requests.post(url, headers=headers, timeout=60)  # Longer timeout for export
+            success = response.status_code == 200
+            
+            if success:
+                # Check if we got a file response
+                content_type = response.headers.get('content-type', '')
+                content_length = len(response.content)
+                
+                if 'audio' in content_type or content_length > 1000:  # Reasonable file size
+                    self.log_test("Song Export (MP3)", True, 
+                                f"Exported {content_length} bytes, Content-Type: {content_type}")
+                else:
+                    self.log_test("Song Export (MP3)", False, f"Invalid export response: {content_type}")
+            else:
+                try:
+                    error_data = response.json()
+                    self.log_test("Song Export (MP3)", False, f"Export failed: {error_data}")
+                except:
+                    self.log_test("Song Export (MP3)", False, f"Export failed with status {response.status_code}")
+                    
+        except requests.exceptions.RequestException as e:
+            self.log_test("Song Export (MP3)", False, f"Request error: {str(e)}")
+        
+        # Test WAV export
+        url = f"{self.base_url}/songs/{self.created_song_id}/export?format=wav"
+        
+        try:
+            response = requests.post(url, headers=headers, timeout=60)
+            success = response.status_code == 200
+            
+            if success:
+                content_type = response.headers.get('content-type', '')
+                content_length = len(response.content)
+                
+                if 'audio' in content_type or content_length > 1000:
+                    self.log_test("Song Export (WAV)", True, 
+                                f"Exported {content_length} bytes, Content-Type: {content_type}")
+                else:
+                    self.log_test("Song Export (WAV)", False, f"Invalid export response: {content_type}")
+            else:
+                try:
+                    error_data = response.json()
+                    self.log_test("Song Export (WAV)", False, f"Export failed: {error_data}")
+                except:
+                    self.log_test("Song Export (WAV)", False, f"Export failed with status {response.status_code}")
+                    
+        except requests.exceptions.RequestException as e:
+            self.log_test("Song Export (WAV)", False, f"Request error: {str(e)}")
+
+    def test_static_file_serving(self):
+        """Test static file serving for uploaded audio"""
+        print("\n🔍 Testing Static File Serving...")
+        
+        # We need to get a voice profile with audio samples to test static serving
+        if not self.token or not self.created_voice_profile_id:
+            self.log_test("Static File Serving", False, "No auth token or voice profile available")
+            return
+        
+        # Get the voice profile to check for audio samples
+        success, data = self.make_request('GET', f'/voice-profiles/{self.created_voice_profile_id}')
+        
+        if success and 'audio_samples' in data and len(data['audio_samples']) > 0:
+            # Test accessing the first audio sample
+            sample = data['audio_samples'][0]
+            audio_url = sample.get('url', '')
+            
+            if audio_url:
+                # Remove /api prefix and test direct file access
+                file_url = audio_url.replace('/api', '')
+                full_url = f"{self.base_url.replace('/api', '')}{file_url}"
+                
+                try:
+                    response = requests.get(full_url, timeout=30)
+                    success = response.status_code == 200
+                    
+                    if success:
+                        content_type = response.headers.get('content-type', '')
+                        content_length = len(response.content)
+                        self.log_test("Static File Serving", True, 
+                                    f"File served: {content_length} bytes, Type: {content_type}")
+                    else:
+                        self.log_test("Static File Serving", False, 
+                                    f"File not accessible: {response.status_code}")
+                        
+                except requests.exceptions.RequestException as e:
+                    self.log_test("Static File Serving", False, f"Request error: {str(e)}")
+            else:
+                self.log_test("Static File Serving", False, "No audio URL found in sample")
+        else:
+            self.log_test("Static File Serving", False, "No audio samples found to test")
+
     def test_delete_operations(self):
         """Test delete operations (cleanup)"""
         print("\n🔍 Testing Delete Operations...")
