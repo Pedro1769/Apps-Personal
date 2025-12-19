@@ -1,16 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   Music4, Wand2, Save, Loader2, Plus, Play, Pause,
   SkipBack, SkipForward, Volume2, VolumeX, Download,
-  Layers, Settings2, ChevronDown, ChevronUp, Sparkles
+  Layers, Settings2, ChevronDown, ChevronUp, Sparkles,
+  Upload, FileAudio, X, Check
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Slider } from '../components/ui/slider';
+import { Progress } from '../components/ui/progress';
 import {
   Select,
   SelectContent,
@@ -28,6 +30,7 @@ import { toast } from 'sonner';
 import axios from 'axios';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 const musicalKeys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const genres = ['gospel', 'worship', 'contemporary', 'traditional', 'choir', 'hymn'];
@@ -44,6 +47,15 @@ const instruments = [
   { id: 'choir', name: 'Coro', icon: '🎤' },
 ];
 
+const stemTypes = [
+  { id: 'vocals', name: 'Voz Principal', icon: '🎤' },
+  { id: 'backing', name: 'Coros', icon: '🎶' },
+  { id: 'piano', name: 'Piano', icon: '🎹' },
+  { id: 'drums', name: 'Batería', icon: '🥁' },
+  { id: 'bass', name: 'Bajo', icon: '🎸' },
+  { id: 'strings', name: 'Cuerdas', icon: '🎻' },
+];
+
 const themes = [
   { value: 'praise', label: 'Alabanza' },
   { value: 'worship', label: 'Adoración' },
@@ -58,6 +70,9 @@ const themes = [
 const SongCreator = ({ token }) => {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project');
+  const audioRef = useRef(new Audio());
+  const fileInputRef = useRef(null);
+  const stemFileInputRef = useRef(null);
 
   const [activeTab, setActiveTab] = useState('details');
   const [loading, setLoading] = useState(false);
@@ -66,7 +81,15 @@ const SongCreator = ({ token }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState([75]);
   const [progress, setProgress] = useState([0]);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [showStructure, setShowStructure] = useState(true);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [currentStemUpload, setCurrentStemUpload] = useState(null);
+  const [stemVolumes, setStemVolumes] = useState({});
+  const [mutedStems, setMutedStems] = useState({});
+  const [savedSongId, setSavedSongId] = useState(null);
 
   const [song, setSong] = useState({
     title: '',
@@ -79,10 +102,48 @@ const SongCreator = ({ token }) => {
     structure: ['intro', 'verse', 'chorus', 'verse', 'chorus', 'bridge', 'chorus', 'outro'],
     instruments: ['piano', 'drums', 'bass', 'strings'],
     lyrics: '',
+    audio_url: null,
+    stems: null,
   });
 
   const [lyricsPrompt, setLyricsPrompt] = useState('');
   const [lyricsTheme, setLyricsTheme] = useState('worship');
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    
+    audio.addEventListener('timeupdate', () => {
+      setCurrentTime(audio.currentTime);
+      if (audio.duration) {
+        setProgress([(audio.currentTime / audio.duration) * 100]);
+      }
+    });
+    
+    audio.addEventListener('loadedmetadata', () => {
+      setDuration(audio.duration);
+    });
+    
+    audio.addEventListener('ended', () => {
+      setIsPlaying(false);
+      setProgress([0]);
+      setCurrentTime(0);
+    });
+
+    return () => {
+      audio.pause();
+    };
+  }, []);
+
+  useEffect(() => {
+    audioRef.current.volume = isMuted ? 0 : volume[0] / 100;
+  }, [volume, isMuted]);
+
+  const formatTime = (seconds) => {
+    if (!seconds || isNaN(seconds)) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const handleSaveSong = async () => {
     if (!projectId) {
@@ -98,11 +159,32 @@ const SongCreator = ({ token }) => {
     try {
       const payload = {
         project_id: projectId,
-        ...song,
+        title: song.title,
+        description: song.description,
+        tempo: song.tempo,
+        key: song.key,
+        genre: song.genre,
+        style: song.style,
+        mood: song.mood,
+        structure: song.structure,
+        instruments: song.instruments,
       };
-      await axios.post(`${API}/songs`, payload, {
+      
+      const response = await axios.post(`${API}/songs`, payload, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      
+      setSavedSongId(response.data.id);
+      
+      // Save lyrics if present
+      if (song.lyrics) {
+        await axios.put(
+          `${API}/songs/${response.data.id}/lyrics`,
+          { lyrics: song.lyrics },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+      
       toast.success('Canción guardada exitosamente');
     } catch (error) {
       toast.error('Error al guardar la canción');
@@ -141,6 +223,127 @@ const SongCreator = ({ token }) => {
     }
   };
 
+  const handleAudioUpload = async (e, stemType = 'master') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!savedSongId) {
+      toast.error('Guarda la canción primero antes de subir audio');
+      return;
+    }
+
+    const allowedTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/x-m4a', 'audio/flac'];
+    if (!allowedTypes.some(type => file.type.includes(type.split('/')[1]))) {
+      toast.error('Formato no soportado. Usa MP3, WAV, OGG, M4A o FLAC');
+      return;
+    }
+
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error('Archivo muy grande. Máximo 50MB');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('stem_type', stemType);
+
+    try {
+      setUploadingAudio(true);
+      setCurrentStemUpload(stemType);
+      setUploadProgress(0);
+
+      const response = await axios.post(
+        `${API}/songs/${savedSongId}/upload-audio`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data',
+          },
+          onUploadProgress: (progressEvent) => {
+            const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            setUploadProgress(percent);
+          },
+        }
+      );
+
+      if (stemType === 'master') {
+        setSong({ ...song, audio_url: response.data.url });
+        // Load audio into player
+        audioRef.current.src = `${BACKEND_URL}${response.data.url}`;
+      } else {
+        const newStems = { ...(song.stems || {}), [stemType]: response.data };
+        setSong({ ...song, stems: newStems });
+      }
+
+      toast.success(`Audio ${stemType === 'master' ? 'principal' : stemType} subido correctamente`);
+    } catch (error) {
+      const message = error.response?.data?.detail || 'Error al subir audio';
+      toast.error(message);
+    } finally {
+      setUploadingAudio(false);
+      setCurrentStemUpload(null);
+      setUploadProgress(0);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (stemFileInputRef.current) stemFileInputRef.current.value = '';
+    }
+  };
+
+  const handlePlayPause = () => {
+    if (!song.audio_url) {
+      toast.error('Sube un archivo de audio primero');
+      return;
+    }
+
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      if (!audioRef.current.src) {
+        audioRef.current.src = `${BACKEND_URL}${song.audio_url}`;
+      }
+      audioRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleSeek = (value) => {
+    const newTime = (value[0] / 100) * duration;
+    audioRef.current.currentTime = newTime;
+    setProgress(value);
+    setCurrentTime(newTime);
+  };
+
+  const handleExport = async (format = 'mp3') => {
+    if (!savedSongId) {
+      toast.error('Guarda la canción primero');
+      return;
+    }
+
+    try {
+      const response = await axios.post(
+        `${API}/songs/${savedSongId}/export?format=${format}`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: 'blob',
+        }
+      );
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${song.title || 'song'}.${format}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      toast.success(`Exportado como ${format.toUpperCase()}`);
+    } catch (error) {
+      toast.error('Error al exportar. Asegúrate de tener audio subido.');
+    }
+  };
+
   const toggleStructurePart = (part) => {
     const newStructure = song.structure.includes(part)
       ? song.structure.filter((p) => p !== part)
@@ -157,6 +360,22 @@ const SongCreator = ({ token }) => {
 
   return (
     <div className="min-h-screen pt-20 pb-32">
+      {/* Hidden file inputs */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={(e) => handleAudioUpload(e, 'master')}
+        accept="audio/*"
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={stemFileInputRef}
+        onChange={(e) => handleAudioUpload(e, currentStemUpload)}
+        accept="audio/*"
+        className="hidden"
+      />
+
       <div className="container-divine">
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 py-6 border-b border-white/5 mb-6">
@@ -173,19 +392,20 @@ const SongCreator = ({ token }) => {
                 className="text-2xl font-cinzel font-bold bg-transparent border-none text-[#E6E7E9] focus:ring-0 p-0 h-auto"
               />
               <p className="text-sm text-[#6B7280]">
-                {projectId ? 'Creando nueva canción' : 'Sin proyecto seleccionado'}
+                {projectId ? (savedSongId ? `ID: ${savedSongId.slice(0,8)}` : 'Nueva canción') : 'Sin proyecto'}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <Button
               variant="outline"
-              onClick={() => {}}
-              data-testid="preview-btn"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!savedSongId || uploadingAudio}
+              data-testid="upload-audio-btn"
               className="btn-secondary"
             >
-              <Play className="w-4 h-4 mr-2" />
-              Preview
+              <Upload className="w-4 h-4 mr-2" />
+              Subir Audio
             </Button>
             <Button
               onClick={handleSaveSong}
@@ -198,12 +418,29 @@ const SongCreator = ({ token }) => {
               ) : (
                 <>
                   <Save className="w-4 h-4 mr-2" />
-                  Guardar
+                  {savedSongId ? 'Actualizar' : 'Guardar'}
                 </>
               )}
             </Button>
           </div>
         </div>
+
+        {/* Upload Progress */}
+        {uploadingAudio && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 p-4 rounded-xl bg-[#D8A45A]/10 border border-[#D8A45A]/30"
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <Loader2 className="w-5 h-5 text-[#D8A45A] animate-spin" />
+              <span className="text-[#E6E7E9]">
+                Subiendo {currentStemUpload === 'master' ? 'audio principal' : currentStemUpload}...
+              </span>
+            </div>
+            <Progress value={uploadProgress} className="h-2" />
+          </motion.div>
+        )}
 
         {/* Main Content */}
         <div className="grid grid-cols-12 gap-6">
@@ -253,7 +490,7 @@ const SongCreator = ({ token }) => {
                   <Textarea
                     value={lyricsPrompt}
                     onChange={(e) => setLyricsPrompt(e.target.value)}
-                    placeholder="Describe la canción que quieres crear. Puedes ser tan detallado como quieras: el mensaje, la atmósfera, versículos bíblicos de inspiración, emociones específicas, momentos congregacionales..."
+                    placeholder="Describe la canción que quieres crear..."
                     data-testid="lyrics-prompt-input"
                     className="input-divine mt-1 min-h-[150px]"
                   />
@@ -295,7 +532,6 @@ const SongCreator = ({ token }) => {
               </div>
 
               <div className="space-y-5">
-                {/* Tempo */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <Label className="text-[#A9ADB1] text-sm">Tempo</Label>
@@ -312,7 +548,6 @@ const SongCreator = ({ token }) => {
                   />
                 </div>
 
-                {/* Key */}
                 <div>
                   <Label className="text-[#A9ADB1] text-sm">Tonalidad</Label>
                   <Select value={song.key} onValueChange={(value) => setSong({ ...song, key: value })}>
@@ -333,7 +568,6 @@ const SongCreator = ({ token }) => {
                   </Select>
                 </div>
 
-                {/* Genre */}
                 <div>
                   <Label className="text-[#A9ADB1] text-sm">Género</Label>
                   <Select value={song.genre} onValueChange={(value) => setSong({ ...song, genre: value })}>
@@ -354,7 +588,6 @@ const SongCreator = ({ token }) => {
                   </Select>
                 </div>
 
-                {/* Mood */}
                 <div>
                   <Label className="text-[#A9ADB1] text-sm">Atmósfera</Label>
                   <Select value={song.mood} onValueChange={(value) => setSong({ ...song, mood: value })}>
@@ -431,7 +664,6 @@ const SongCreator = ({ token }) => {
                       />
                     </div>
 
-                    {/* Instruments */}
                     <div>
                       <Label className="text-[#A9ADB1] mb-3 block">Instrumentación</Label>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -451,7 +683,6 @@ const SongCreator = ({ token }) => {
                       </div>
                     </div>
 
-                    {/* Structure Preview */}
                     <div>
                       <div className="flex items-center justify-between mb-3">
                         <Label className="text-[#A9ADB1]">Estructura de la Canción</Label>
@@ -502,7 +733,10 @@ const SongCreator = ({ token }) => {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => navigator.clipboard.writeText(song.lyrics)}
+                        onClick={() => {
+                          navigator.clipboard.writeText(song.lyrics);
+                          toast.success('Copiado');
+                        }}
                         className="text-[#A9ADB1] hover:text-[#D8A45A]"
                       >
                         Copiar
@@ -540,16 +774,17 @@ const SongCreator = ({ token }) => {
                         </div>
                         <div className="flex-1">
                           <p className="text-[#E6E7E9] capitalize font-medium">{part}</p>
-                          <p className="text-sm text-[#6B7280]">
-                            {part === 'intro' && '4-8 compases'}
-                            {part === 'verse' && '8-16 compases'}
-                            {part === 'pre-chorus' && '4-8 compases'}
-                            {part === 'chorus' && '8-16 compases'}
-                            {part === 'bridge' && '8 compases'}
-                            {part === 'vamp' && 'Variable'}
-                            {part === 'outro' && '4-8 compases'}
-                          </p>
                         </div>
+                        <button
+                          onClick={() => {
+                            const newStructure = [...song.structure];
+                            newStructure.splice(index, 1);
+                            setSong({ ...song, structure: newStructure });
+                          }}
+                          className="p-2 text-[#6B7280] hover:text-[#D05B5B]"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -567,45 +802,76 @@ const SongCreator = ({ token }) => {
                     <Layers className="w-6 h-6 text-[#7C5AB9]" />
                     <div>
                       <h3 className="text-lg font-semibold text-[#E6E7E9]">Capas de Audio</h3>
-                      <p className="text-sm text-[#6B7280]">Controla cada pista individualmente</p>
+                      <p className="text-sm text-[#6B7280]">Sube pistas individuales para cada stem</p>
                     </div>
                   </div>
 
+                  {!savedSongId && (
+                    <div className="mb-6 p-4 rounded-lg bg-orange-500/10 border border-orange-500/30">
+                      <p className="text-orange-400 text-sm">
+                        Guarda la canción primero para poder subir stems de audio.
+                      </p>
+                    </div>
+                  )}
+
                   <div className="space-y-3">
-                    {['Voz Principal', 'Coros', 'Piano', 'Batería', 'Bajo', 'Cuerdas'].map((stem, index) => (
-                      <div key={stem} className="stem-layer">
-                        <div className="w-10 h-10 rounded-lg bg-[#7C5AB9]/20 flex items-center justify-center">
-                          <span className="text-lg">
-                            {index === 0 && '🎤'}
-                            {index === 1 && '🎶'}
-                            {index === 2 && '🎹'}
-                            {index === 3 && '🥁'}
-                            {index === 4 && '🎸'}
-                            {index === 5 && '🎻'}
-                          </span>
+                    {stemTypes.map((stem) => {
+                      const stemData = song.stems?.[stem.id];
+                      return (
+                        <div key={stem.id} className="stem-layer">
+                          <div className="w-10 h-10 rounded-lg bg-[#7C5AB9]/20 flex items-center justify-center">
+                            <span className="text-lg">{stem.icon}</span>
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-[#E6E7E9] font-medium">{stem.name}</p>
+                            {stemData && (
+                              <p className="text-xs text-[#6B7280]">
+                                {formatTime(stemData.duration)} subido
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3">
+                            {stemData ? (
+                              <Check className="w-5 h-5 text-green-500" />
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={!savedSongId || uploadingAudio}
+                                onClick={() => {
+                                  setCurrentStemUpload(stem.id);
+                                  stemFileInputRef.current?.click();
+                                }}
+                                className="text-[#A9ADB1] hover:text-[#D8A45A]"
+                              >
+                                <Upload className="w-4 h-4 mr-1" />
+                                Subir
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex-1">
-                          <p className="text-[#E6E7E9] font-medium">{stem}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <Slider
-                            defaultValue={[100]}
-                            max={100}
-                            step={1}
-                            className="w-24 [&_[role=slider]]:bg-[#7C5AB9]"
-                          />
-                          <Button variant="ghost" size="sm" className="text-[#6B7280] hover:text-[#E6E7E9]">
-                            <Volume2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
-                  <div className="mt-6 pt-6 border-t border-white/5">
-                    <Button data-testid="export-stems-btn" className="btn-secondary w-full">
+                  <div className="mt-6 pt-6 border-t border-white/5 flex gap-3">
+                    <Button 
+                      onClick={() => handleExport('mp3')}
+                      disabled={!savedSongId || !song.audio_url}
+                      data-testid="export-mp3-btn" 
+                      className="btn-secondary flex-1"
+                    >
                       <Download className="w-4 h-4 mr-2" />
-                      Exportar Stems
+                      Exportar MP3
+                    </Button>
+                    <Button 
+                      onClick={() => handleExport('wav')}
+                      disabled={!savedSongId || !song.audio_url}
+                      data-testid="export-wav-btn" 
+                      className="btn-secondary flex-1"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Exportar WAV
                     </Button>
                   </div>
                 </motion.div>
@@ -621,43 +887,64 @@ const SongCreator = ({ token }) => {
           {/* Song Info */}
           <div className="flex items-center gap-3 min-w-[200px]">
             <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#D8A45A]/20 to-[#7C5AB9]/20 flex items-center justify-center">
-              <Music4 className="w-6 h-6 text-[#D8A45A]" />
+              {song.audio_url ? (
+                <FileAudio className="w-6 h-6 text-[#D8A45A]" />
+              ) : (
+                <Music4 className="w-6 h-6 text-[#6B7280]" />
+              )}
             </div>
             <div>
               <p className="text-[#E6E7E9] font-medium truncate">
                 {song.title || 'Sin título'}
               </p>
-              <p className="text-sm text-[#6B7280]">{song.key} • {song.tempo} BPM</p>
+              <p className="text-sm text-[#6B7280]">
+                {song.audio_url ? `${song.key} • ${song.tempo} BPM` : 'Sin audio'}
+              </p>
             </div>
           </div>
 
           {/* Player Controls */}
           <div className="flex-1 flex flex-col items-center gap-2">
             <div className="flex items-center gap-4">
-              <Button variant="ghost" size="sm" className="text-[#6B7280] hover:text-[#E6E7E9]">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => {
+                  audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 10);
+                }}
+                className="text-[#6B7280] hover:text-[#E6E7E9]"
+              >
                 <SkipBack className="w-5 h-5" />
               </Button>
               <Button
-                onClick={() => setIsPlaying(!isPlaying)}
+                onClick={handlePlayPause}
                 data-testid="play-pause-btn"
                 className="w-12 h-12 rounded-full bg-[#D8A45A] hover:bg-[#E6B86E] text-[#0B0C0E]"
               >
                 {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
               </Button>
-              <Button variant="ghost" size="sm" className="text-[#6B7280] hover:text-[#E6E7E9]">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => {
+                  audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + 10);
+                }}
+                className="text-[#6B7280] hover:text-[#E6E7E9]"
+              >
                 <SkipForward className="w-5 h-5" />
               </Button>
             </div>
             <div className="w-full max-w-xl flex items-center gap-3">
-              <span className="text-xs text-[#6B7280] font-mono">0:00</span>
+              <span className="text-xs text-[#6B7280] font-mono w-10">{formatTime(currentTime)}</span>
               <Slider
                 value={progress}
-                onValueChange={setProgress}
+                onValueChange={handleSeek}
                 max={100}
-                step={1}
+                step={0.1}
+                disabled={!song.audio_url}
                 className="flex-1 [&_[role=slider]]:bg-[#D8A45A]"
               />
-              <span className="text-xs text-[#6B7280] font-mono">3:45</span>
+              <span className="text-xs text-[#6B7280] font-mono w-10">{formatTime(duration)}</span>
             </div>
           </div>
 
