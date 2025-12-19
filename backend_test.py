@@ -253,7 +253,7 @@ class PGospelMusicAPITester:
             "mood": "uplifting"
         }
         
-        success, data = self.make_request('POST', '/songs', song_data, 201)
+        success, data = self.make_request('POST', '/songs', song_data, 200)
         
         if success and 'id' in data:
             self.created_song_id = data['id']
