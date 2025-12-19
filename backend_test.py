@@ -842,13 +842,22 @@ Amén"""
         self.test_lyrics_generation()
         self.test_update_song_lyrics()
         
-        # NEW AUDIO UPLOAD FEATURES
-        print("\n🎵 Testing NEW Audio Upload Features...")
+        # AUDIO UPLOAD FEATURES
+        print("\n🎵 Testing Audio Upload Features...")
         self.test_voice_profile_audio_upload()
         self.test_song_audio_upload()
         self.test_song_stem_upload()
         self.test_song_export()
         self.test_static_file_serving()
+        
+        # ELEVENLABS VOICE CLONING FEATURES
+        print("\n🎤 Testing ElevenLabs Voice Cloning Features...")
+        self.test_elevenlabs_health_check()
+        self.test_elevenlabs_voices_list()
+        self.test_voice_cloning_manual_trigger()
+        self.test_tts_generation()
+        self.test_song_audio_generation_with_voice()
+        self.test_lyrics_generation_with_voice_context()
         
         # Cleanup
         self.test_delete_operations()
