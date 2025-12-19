@@ -119,7 +119,7 @@ const SongCreator = ({ token }) => {
           headers: { Authorization: `Bearer ${token}` },
         });
         setVoiceProfiles(response.data);
-        const readyProfile = response.data.find(p => p.status === 'ready' && p.elevenlabs_voice_id);
+        const readyProfile = response.data.find(p => p.status === 'ready' && p.voice_cloned);
         if (readyProfile) {
           setSelectedVoiceProfile(readyProfile.id);
         } else {
@@ -278,8 +278,8 @@ const SongCreator = ({ token }) => {
     }
 
     const profile = voiceProfiles.find(p => p.id === selectedVoiceProfile);
-    if (!profile?.elevenlabs_voice_id) {
-      toast.error('Tu voz no ha sido clonada aún. Sube más muestras de voz o espera el procesamiento.');
+    if (!profile?.voice_cloned) {
+      toast.error('Tu voz no ha sido procesada aún. Sube muestras de voz primero.');
       return;
     }
 
@@ -497,8 +497,8 @@ const SongCreator = ({ token }) => {
                   <Mic className="w-5 h-5 text-[#A680FF]" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-[#E6E7E9]">Tu Voz (ElevenLabs)</h3>
-                  <p className="text-xs text-[#6B7280]">Clonación de voz real</p>
+                  <h3 className="font-semibold text-[#E6E7E9]">Tu Voz</h3>
+                  <p className="text-xs text-[#6B7280]">Motor de voz local</p>
                 </div>
               </div>
 
@@ -520,7 +520,7 @@ const SongCreator = ({ token }) => {
                           <div className="flex items-center gap-2">
                             <User className="w-4 h-4" />
                             <span>{profile.name}</span>
-                            {profile.elevenlabs_voice_id && <Check className="w-3 h-3 text-green-500" />}
+                            {profile.voice_cloned && <Check className="w-3 h-3 text-green-500" />}
                           </div>
                         </SelectItem>
                       ))}
