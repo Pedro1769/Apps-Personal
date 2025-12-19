@@ -1,115 +1,226 @@
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Manrope:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    --background: 220 10% 4%;
+    --foreground: 220 10% 90%;
+    --card: 220 12% 7%;
+    --card-foreground: 220 10% 90%;
+    --popover: 220 12% 7%;
+    --popover-foreground: 220 10% 90%;
+    --primary: 38 60% 55%;
+    --primary-foreground: 220 10% 4%;
+    --secondary: 220 12% 12%;
+    --secondary-foreground: 220 10% 90%;
+    --muted: 220 12% 15%;
+    --muted-foreground: 220 10% 60%;
+    --accent: 265 40% 55%;
+    --accent-foreground: 220 10% 90%;
+    --destructive: 0 60% 50%;
+    --destructive-foreground: 220 10% 90%;
+    --border: 220 10% 15%;
+    --input: 220 10% 15%;
+    --ring: 38 60% 55%;
+    --radius: 0.75rem;
+    
+    --divine-gold: #D8A45A;
+    --divine-gold-hover: #E6B86E;
+    --divine-gold-pressed: #B8843F;
+    --divine-gold-glow: rgba(216, 164, 90, 0.3);
+    --divine-purple: #7C5AB9;
+    --divine-purple-light: #A680FF;
+    --divine-purple-dark: #5A3B86;
+    --divine-purple-glow: rgba(124, 90, 185, 0.3);
+    --bg-primary: #0B0C0E;
+    --bg-secondary: #111318;
+    --bg-tertiary: #1A1D23;
+    --text-primary: #E6E7E9;
+    --text-secondary: #A9ADB1;
+    --text-muted: #6B7280;
+  }
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 body {
-    margin: 0;
-    font-family:
-        -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-        "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-        sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+  font-family: 'Manrope', sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
-code {
-    font-family:
-        source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Cinzel', serif;
 }
 
-@layer base {
-    :root {
-        --background: 0 0% 100%;
-        --foreground: 0 0% 3.9%;
-        --card: 0 0% 100%;
-        --card-foreground: 0 0% 3.9%;
-        --popover: 0 0% 100%;
-        --popover-foreground: 0 0% 3.9%;
-        --primary: 0 0% 9%;
-        --primary-foreground: 0 0% 98%;
-        --secondary: 0 0% 96.1%;
-        --secondary-foreground: 0 0% 9%;
-        --muted: 0 0% 96.1%;
-        --muted-foreground: 0 0% 45.1%;
-        --accent: 0 0% 96.1%;
-        --accent-foreground: 0 0% 9%;
-        --destructive: 0 84.2% 60.2%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 89.8%;
-        --input: 0 0% 89.8%;
-        --ring: 0 0% 3.9%;
-        --chart-1: 12 76% 61%;
-        --chart-2: 173 58% 39%;
-        --chart-3: 197 37% 24%;
-        --chart-4: 43 74% 66%;
-        --chart-5: 27 87% 67%;
-        --radius: 0.5rem;
-    }
-    .dark {
-        --background: 0 0% 3.9%;
-        --foreground: 0 0% 98%;
-        --card: 0 0% 3.9%;
-        --card-foreground: 0 0% 98%;
-        --popover: 0 0% 3.9%;
-        --popover-foreground: 0 0% 98%;
-        --primary: 0 0% 98%;
-        --primary-foreground: 0 0% 9%;
-        --secondary: 0 0% 14.9%;
-        --secondary-foreground: 0 0% 98%;
-        --muted: 0 0% 14.9%;
-        --muted-foreground: 0 0% 63.9%;
-        --accent: 0 0% 14.9%;
-        --accent-foreground: 0 0% 98%;
-        --destructive: 0 62.8% 30.6%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 14.9%;
-        --input: 0 0% 14.9%;
-        --ring: 0 0% 83.1%;
-        --chart-1: 220 70% 50%;
-        --chart-2: 160 60% 45%;
-        --chart-3: 30 80% 55%;
-        --chart-4: 280 65% 60%;
-        --chart-5: 340 75% 55%;
-    }
+code, .mono {
+  font-family: 'JetBrains Mono', monospace;
 }
 
 @layer base {
-    * {
-        @apply border-border;
-    }
-    body {
-        @apply bg-background text-foreground;
-    }
+  * {
+    @apply border-border;
+  }
 }
 
-@layer base {
-    [data-debug-wrapper="true"] {
-        display: contents !important;
-    }
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
 
-    [data-debug-wrapper="true"] > * {
-        margin-left: inherit;
-        margin-right: inherit;
-        margin-top: inherit;
-        margin-bottom: inherit;
-        padding-left: inherit;
-        padding-right: inherit;
-        padding-top: inherit;
-        padding-bottom: inherit;
-        column-gap: inherit;
-        row-gap: inherit;
-        gap: inherit;
-        border-left-width: inherit;
-        border-right-width: inherit;
-        border-top-width: inherit;
-        border-bottom-width: inherit;
-        border-left-style: inherit;
-        border-right-style: inherit;
-        border-top-style: inherit;
-        border-bottom-style: inherit;
-        border-left-color: inherit;
-        border-right-color: inherit;
-        border-top-color: inherit;
-        border-bottom-color: inherit;
-    }
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--divine-purple-dark);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--divine-purple);
+}
+
+/* Selection */
+::selection {
+  background: var(--divine-gold-glow);
+  color: var(--text-primary);
+}
+
+/* Glass Effect */
+.glass {
+  background: rgba(17, 19, 24, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.glass-light {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Glow Effects */
+.glow-gold {
+  box-shadow: 0 0 20px var(--divine-gold-glow), 0 0 40px rgba(216, 164, 90, 0.1);
+}
+
+.glow-purple {
+  box-shadow: 0 0 20px var(--divine-purple-glow), 0 0 40px rgba(124, 90, 185, 0.1);
+}
+
+.text-glow-gold {
+  text-shadow: 0 0 20px var(--divine-gold-glow);
+}
+
+/* Animated Background Elements */
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.3; }
+  50% { transform: translateY(-30px) rotate(5deg); opacity: 0.6; }
+}
+
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0) translateX(0); }
+  25% { transform: translateY(-20px) translateX(10px); }
+  50% { transform: translateY(-40px) translateX(0); }
+  75% { transform: translateY(-20px) translateX(-10px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.05); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-float {
+  animation: float 8s ease-in-out infinite;
+}
+
+.animate-float-slow {
+  animation: floatSlow 12s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 4s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent, rgba(216, 164, 90, 0.1), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 3s infinite;
+}
+
+/* Button Styles */
+.btn-primary {
+  @apply bg-[#D8A45A] text-[#0B0C0E] font-semibold rounded-full px-8 py-3 transition-all duration-300;
+  box-shadow: 0 0 15px rgba(216, 164, 90, 0.3);
+}
+
+.btn-primary:hover {
+  @apply bg-[#E6B86E];
+  box-shadow: 0 0 25px rgba(216, 164, 90, 0.5);
+}
+
+.btn-secondary {
+  @apply bg-white/5 text-[#E6E7E9] border border-white/10 rounded-full px-6 py-2 transition-all duration-300;
+}
+
+.btn-secondary:hover {
+  @apply bg-white/10 border-white/20;
+}
+
+/* Input Styles */
+.input-divine {
+  @apply bg-[#0B0C0E] border border-white/10 rounded-lg px-4 py-3 text-[#E6E7E9] transition-all duration-300;
+}
+
+.input-divine:focus {
+  @apply border-[#D8A45A] ring-1 ring-[#D8A45A] outline-none;
+}
+
+.input-divine::placeholder {
+  @apply text-white/20;
+}
+
+/* Card Styles */
+.card-divine {
+  @apply rounded-2xl bg-[#111318] border border-white/5 p-6 transition-all duration-500;
+}
+
+.card-divine:hover {
+  @apply border-[#D8A45A]/30;
+}
+
+/* Gradient Text */
+.gradient-text {
+  background: linear-gradient(135deg, var(--divine-gold) 0%, var(--divine-purple-light) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Divine Light Overlay */
+.divine-light {
+  background: linear-gradient(180deg, rgba(216, 164, 90, 0.15) 0%, rgba(11, 12, 14, 0) 100%);
+}
+
+.mystic-depth {
+  background: radial-gradient(circle at center, rgba(124, 90, 185, 0.15) 0%, rgba(11, 12, 14, 0) 70%);
 }

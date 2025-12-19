@@ -1,34 +1,283 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* PGospelMusic App Styles */
+
+/* Animated Background */
+.animated-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, #0B0C0E 0%, #111318 50%, #0B0C0E 100%);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+/* Floating Elements */
+.bubble {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(2px);
+  animation: floatUp linear infinite;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+.music-note {
+  position: absolute;
+  color: rgba(216, 164, 90, 0.08);
+  animation: floatUpRotate linear infinite;
 }
 
-.App-link {
-    color: #61dafb;
+.piano-key {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+  animation: floatUpSway linear infinite;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+@keyframes floatUp {
+  0% {
+    transform: translateY(100vh) scale(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100px) scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes floatUpRotate {
+  0% {
+    transform: translateY(100vh) rotate(0deg) scale(0.5);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.8;
+  }
+  90% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-100px) rotate(360deg) scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes floatUpSway {
+  0% {
+    transform: translateY(100vh) translateX(0) rotate(-5deg);
+    opacity: 0;
+  }
+  25% {
+    transform: translateY(75vh) translateX(20px) rotate(5deg);
+  }
+  50% {
+    transform: translateY(50vh) translateX(-20px) rotate(-5deg);
+  }
+  75% {
+    transform: translateY(25vh) translateX(20px) rotate(5deg);
+  }
+  100% {
+    transform: translateY(-100px) translateX(0) rotate(-5deg);
+    opacity: 0;
+  }
+}
+
+/* Waveform Animation */
+.waveform-bar {
+  animation: waveform 1.2s ease-in-out infinite;
+}
+
+@keyframes waveform {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+/* Page Transitions */
+.page-enter {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.page-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 400ms, transform 400ms;
+}
+
+.page-exit {
+  opacity: 1;
+}
+
+.page-exit-active {
+  opacity: 0;
+  transition: opacity 300ms;
+}
+
+/* Slider Track */
+.slider-track {
+  background: linear-gradient(90deg, var(--divine-gold) 0%, var(--divine-purple) 100%);
+}
+
+/* Audio Player */
+.audio-player {
+  background: linear-gradient(180deg, rgba(17, 19, 24, 0.95) 0%, rgba(11, 12, 14, 0.98) 100%);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Song Structure Pills */
+.structure-pill {
+  @apply px-3 py-1 rounded-full text-sm font-medium transition-all duration-300 cursor-pointer;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.structure-pill:hover {
+  background: rgba(216, 164, 90, 0.1);
+  border-color: rgba(216, 164, 90, 0.3);
+}
+
+.structure-pill.active {
+  background: rgba(216, 164, 90, 0.2);
+  border-color: var(--divine-gold);
+  color: var(--divine-gold);
+}
+
+/* Instrument Chip */
+.instrument-chip {
+  @apply px-4 py-2 rounded-lg text-sm transition-all duration-300 cursor-pointer flex items-center gap-2;
+  background: rgba(124, 90, 185, 0.1);
+  border: 1px solid rgba(124, 90, 185, 0.2);
+}
+
+.instrument-chip:hover {
+  background: rgba(124, 90, 185, 0.2);
+  border-color: rgba(124, 90, 185, 0.4);
+}
+
+.instrument-chip.selected {
+  background: rgba(124, 90, 185, 0.3);
+  border-color: var(--divine-purple);
+  box-shadow: 0 0 10px rgba(124, 90, 185, 0.2);
+}
+
+/* Voice Profile Card */
+.voice-card {
+  @apply relative overflow-hidden rounded-2xl p-6 transition-all duration-500;
+  background: linear-gradient(135deg, rgba(17, 19, 24, 0.9) 0%, rgba(26, 29, 35, 0.9) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.voice-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--divine-gold), var(--divine-purple));
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.voice-card:hover::before {
+  opacity: 1;
+}
+
+/* Lyrics Editor */
+.lyrics-editor {
+  @apply w-full min-h-[400px] p-6 rounded-xl text-lg leading-relaxed resize-none;
+  background: rgba(11, 12, 14, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  font-family: 'Manrope', sans-serif;
+}
+
+.lyrics-editor:focus {
+  outline: none;
+  border-color: rgba(216, 164, 90, 0.3);
+  box-shadow: 0 0 20px rgba(216, 164, 90, 0.1);
+}
+
+/* Stem Layer */
+.stem-layer {
+  @apply flex items-center gap-4 p-4 rounded-xl transition-all duration-300;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.stem-layer:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.stem-layer.muted {
+  opacity: 0.5;
+}
+
+/* Progress Ring */
+.progress-ring {
+  transform: rotate(-90deg);
+}
+
+.progress-ring circle {
+  transition: stroke-dashoffset 0.35s;
+  transform-origin: 50% 50%;
+}
+
+/* Tooltip */
+.tooltip {
+  @apply absolute z-50 px-3 py-2 text-sm rounded-lg opacity-0 pointer-events-none transition-opacity duration-200;
+  background: rgba(17, 19, 24, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.tooltip.visible {
+  opacity: 1;
+}
+
+/* Feature Card Hover Effects */
+.feature-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.feature-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(216, 164, 90, 0.05), transparent);
+  transition: left 0.5s;
+}
+
+.feature-card:hover::after {
+  left: 100%;
+}
+
+/* Loading Spinner */
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--divine-gold);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive Container */
+.container-divine {
+  @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
 }
