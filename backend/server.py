@@ -934,9 +934,21 @@ async def export_song(song_id: str, format: str = "mp3", user: dict = Depends(ge
     if not song.get("audio_url"):
         raise HTTPException(status_code=400, detail="Song has no audio to export")
     
-    source_path = ROOT_DIR / song["audio_url"].lstrip("/")
+    # Handle different audio_url formats
+    audio_url = song["audio_url"]
+    if audio_url.startswith("/uploads/"):
+        source_path = ROOT_DIR / audio_url.lstrip("/")
+    else:
+        source_path = ROOT_DIR / "uploads" / audio_url.lstrip("/")
+    
+    logger.info(f"Export - Looking for audio at: {source_path}")
     if not source_path.exists():
-        raise HTTPException(status_code=404, detail="Audio file not found")
+        # Try alternative path
+        alt_path = AUDIO_DIR / Path(audio_url).name
+        if alt_path.exists():
+            source_path = alt_path
+        else:
+            raise HTTPException(status_code=404, detail=f"Audio file not found: {source_path}")
     
     safe_title = "".join(c for c in song["title"] if c.isalnum() or c in " -_").strip()
     export_filename = f"{safe_title}_{song_id[:8]}.{format}"
